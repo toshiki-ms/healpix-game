@@ -30,12 +30,12 @@ npm run build
 
 ## Deploy
 
-This repository is ready for GitHub Pages via GitHub Actions.
+This repository is ready for GitHub Pages via the `gh-pages` branch.
 
 1. Push the repository to GitHub.
 2. Open repository settings.
 3. Go to Pages.
-4. Set the source to GitHub Actions.
+4. Set the source to the `gh-pages` branch if it is not selected automatically.
 5. Push to `main`, or run the `Deploy GitHub Pages` workflow manually.
 
-The workflow builds the Vite app and publishes `dist/`.
+The workflow builds the Vite app and publishes `dist/` to `gh-pages`.
