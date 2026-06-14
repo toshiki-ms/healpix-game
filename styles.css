@@ -416,7 +416,11 @@ p {
 }
 
 .go-control-stack .actions {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.go-pass-button {
+  min-width: 4.5rem;
 }
 
 .go-control-stack .difficulty-row {

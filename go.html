@@ -42,6 +42,7 @@
           </div>
           <div class="title-actions">
             <button class="panel-toggle" id="homeButton" type="button">Home</button>
+            <button class="panel-toggle go-pass-button" id="passButton" type="button">Pass</button>
             <button class="panel-toggle" id="controlsToggle" type="button" aria-expanded="true" aria-controls="controlStack">Hide settings</button>
           </div>
         </div>
@@ -66,23 +67,22 @@
             </select>
             <button id="blackNpcToggle" type="button" aria-pressed="false">Black Human</button>
             <button id="whiteNpcToggle" type="button" aria-pressed="true">White NPC</button>
-            <button id="passButton" type="button">Pass</button>
             <button id="territoryToggle" type="button" aria-pressed="false">Territory</button>
             <button id="resetButton" type="button">New</button>
           </div>
           <div class="difficulty go-difficulty" role="group" aria-label="NPC difficulty by color">
             <div class="difficulty-row">
               <span class="difficulty-label" id="blackDifficultyLabel">Black</span>
-              <button type="button" data-go-player="black" data-go-difficulty="weak" aria-pressed="false">Weak</button>
-              <button type="button" data-go-player="black" data-go-difficulty="medium" aria-pressed="true">Medium</button>
+              <button type="button" data-go-player="black" data-go-difficulty="weak" aria-pressed="true">Weak</button>
+              <button type="button" data-go-player="black" data-go-difficulty="medium" aria-pressed="false">Medium</button>
               <button type="button" data-go-player="black" data-go-difficulty="strong" aria-pressed="false">Strong</button>
               <button type="button" data-go-player="black" data-go-difficulty="expert" aria-pressed="false">Expert</button>
               <button type="button" data-go-player="black" data-go-difficulty="god" aria-pressed="false">God</button>
             </div>
             <div class="difficulty-row">
               <span class="difficulty-label" id="whiteDifficultyLabel">White</span>
-              <button type="button" data-go-player="white" data-go-difficulty="weak" aria-pressed="false">Weak</button>
-              <button type="button" data-go-player="white" data-go-difficulty="medium" aria-pressed="true">Medium</button>
+              <button type="button" data-go-player="white" data-go-difficulty="weak" aria-pressed="true">Weak</button>
+              <button type="button" data-go-player="white" data-go-difficulty="medium" aria-pressed="false">Medium</button>
               <button type="button" data-go-player="white" data-go-difficulty="strong" aria-pressed="false">Strong</button>
               <button type="button" data-go-player="white" data-go-difficulty="expert" aria-pressed="false">Expert</button>
               <button type="button" data-go-player="white" data-go-difficulty="god" aria-pressed="false">God</button>

@@ -258,10 +258,10 @@ let npcPlayers = new Set([WHITE]);
 const goDifficulties = {
   [BLACK]: difficultyOptions.has(window.localStorage.getItem("healpixGoBlackDifficulty"))
     ? window.localStorage.getItem("healpixGoBlackDifficulty")
-    : "medium",
+    : "weak",
   [WHITE]: difficultyOptions.has(window.localStorage.getItem("healpixGoWhiteDifficulty"))
     ? window.localStorage.getItem("healpixGoWhiteDifficulty")
-    : "medium"
+    : "weak"
 };
 let aiTimer = 0;
 let pointerDown = null;
