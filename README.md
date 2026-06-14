@@ -35,10 +35,10 @@ npm run build
 
 ## Deployment
 
-This repository is published with GitHub Pages from the `gh-pages` branch.
+This repository is published with GitHub Pages from a GitHub Actions artifact. No `gh-pages` branch is required.
 
 1. Push changes to `main`.
 2. The GitHub Actions workflow builds the Vite app.
-3. The generated `dist/` output is published to `gh-pages`.
+3. The generated `dist/` output is uploaded as a Pages artifact and deployed.
 
-If Pages is not enabled automatically, open the repository settings, go to Pages, and set the source to the `gh-pages` branch.
+If Pages is not enabled automatically, open the repository settings, go to Pages, and set the source to GitHub Actions.
