@@ -5,8 +5,8 @@ Board games on spherical HEALPix grids.
 Play:
 
 - Home: https://toshiki-ms.github.io/healpix-game/
-- Othello: https://toshiki-ms.github.io/healpix-game/othello.html?lang=en
-- Go: https://toshiki-ms.github.io/healpix-game/go.html?lang=en
+- Othello: https://toshiki-ms.github.io/healpix-game/othello.html
+- Go: https://toshiki-ms.github.io/healpix-game/go.html
 
 ## Games
 
