@@ -56,6 +56,12 @@ npm run test:logic
 npm run build
 ```
 
+## License
+
+This project is licensed under the BSD 2-Clause License. See [LICENSE](./LICENSE).
+
+The original HEALPix software package is a separate project and is not included in this repository.
+
 ## Deployment
 
 This repository is published with GitHub Pages from a GitHub Actions artifact. No `gh-pages` branch is required.

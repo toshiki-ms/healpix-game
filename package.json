@@ -2,6 +2,7 @@
   "name": "healpix-game",
   "version": "0.1.0",
   "description": "Othello and Go on spherical HEALPix boards.",
+  "license": "BSD-2-Clause",
   "private": true,
   "type": "module",
   "scripts": {
