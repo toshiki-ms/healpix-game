@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HEALPix Go</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="stage go-stage" aria-label="HEALPix Go">
+      <canvas id="board"></canvas>
+      <div class="axis-widget" id="axisWidget" aria-hidden="true">
+        <svg viewBox="0 0 160 160">
+          <defs>
+            <marker id="axisArrowX" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#f26f63" />
+            </marker>
+            <marker id="axisArrowY" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#7edc8a" />
+            </marker>
+            <marker id="axisArrowZ" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#76a8ff" />
+            </marker>
+          </defs>
+          <line id="axisLineZ" class="axis-line axis-line-z" x1="78" y1="82" x2="78" y2="18" marker-end="url(#axisArrowZ)" />
+          <line id="axisLineSouth" class="axis-line axis-line-south" x1="78" y1="82" x2="78" y2="140" marker-end="url(#axisArrowZ)" />
+          <line id="axisLineY" class="axis-line axis-line-y" x1="78" y1="82" x2="36" y2="38" marker-end="url(#axisArrowY)" />
+          <line id="axisLineX" class="axis-line axis-line-x" x1="78" y1="82" x2="136" y2="92" marker-end="url(#axisArrowX)" />
+          <circle class="axis-origin" cx="78" cy="82" r="5" />
+          <text id="axisTextZ" class="axis-text axis-text-z" x="102" y="27">+Z North</text>
+          <text id="axisTextY" class="axis-text axis-text-y" x="34" y="31">+Y</text>
+          <text id="axisTextX" class="axis-text axis-text-x" x="132" y="115">+X</text>
+        </svg>
+      </div>
+
+      <section class="hud" aria-label="game status">
+        <div class="title-block">
+          <span class="planet-mark" aria-hidden="true"></span>
+          <div>
+            <h1>HEALPix Go</h1>
+            <p id="resolutionLabel">NSIDE 2 / 48 playable points</p>
+          </div>
+          <div class="title-actions">
+            <button class="panel-toggle" id="controlsToggle" type="button" aria-expanded="true" aria-controls="controlStack">Hide settings</button>
+            <button class="lang-toggle" id="languageToggle" type="button">JA</button>
+          </div>
+        </div>
+
+        <div class="score-strip" aria-live="polite">
+          <div class="score-pill score-pill-black">
+            <span id="blackScoreLabel">Black</span>
+            <strong id="blackScore">0</strong>
+          </div>
+          <div class="turn-pill" id="turnLabel">Black turn</div>
+          <div class="score-pill score-pill-white">
+            <span id="whiteScoreLabel">White</span>
+            <strong id="whiteScore">0</strong>
+          </div>
+        </div>
+
+        <div class="control-stack go-control-stack" id="controlStack">
+          <div class="actions">
+            <select id="goNsideSelect" aria-label="NSIDE">
+              <option value="2">NS 2</option>
+              <option value="4">NS 4</option>
+            </select>
+            <button id="blackNpcToggle" type="button" aria-pressed="false">Black Human</button>
+            <button id="whiteNpcToggle" type="button" aria-pressed="true">White NPC</button>
+            <button id="passButton" type="button">Pass</button>
+            <button id="territoryToggle" type="button" aria-pressed="false">Territory</button>
+            <button id="resetButton" type="button">New</button>
+          </div>
+          <div class="difficulty go-difficulty" role="group" aria-label="NPC difficulty by color">
+            <div class="difficulty-row">
+              <span class="difficulty-label" id="blackDifficultyLabel">Black</span>
+              <button type="button" data-go-player="black" data-go-difficulty="weak" aria-pressed="false">Weak</button>
+              <button type="button" data-go-player="black" data-go-difficulty="medium" aria-pressed="true">Medium</button>
+              <button type="button" data-go-player="black" data-go-difficulty="strong" aria-pressed="false">Strong</button>
+              <button type="button" data-go-player="black" data-go-difficulty="expert" aria-pressed="false">Expert</button>
+              <button type="button" data-go-player="black" data-go-difficulty="god" aria-pressed="false">God</button>
+            </div>
+            <div class="difficulty-row">
+              <span class="difficulty-label" id="whiteDifficultyLabel">White</span>
+              <button type="button" data-go-player="white" data-go-difficulty="weak" aria-pressed="false">Weak</button>
+              <button type="button" data-go-player="white" data-go-difficulty="medium" aria-pressed="true">Medium</button>
+              <button type="button" data-go-player="white" data-go-difficulty="strong" aria-pressed="false">Strong</button>
+              <button type="button" data-go-player="white" data-go-difficulty="expert" aria-pressed="false">Expert</button>
+              <button type="button" data-go-player="white" data-go-difficulty="god" aria-pressed="false">God</button>
+            </div>
+          </div>
+          <button class="hint-action" id="godHintButton" type="button">God move</button>
+          <button class="index-action" id="goOverlayToggle" type="button" aria-pressed="false">Index off</button>
+        </div>
+      </section>
+
+      <output class="status-line" id="message" aria-live="polite">Captures 0-0</output>
+
+      <section class="net-panel go-net-panel" aria-label="HEALPix vertex map">
+        <div class="net-head">
+          <span id="netTitle">Vertex map</span>
+          <button class="panel-toggle net-toggle" id="netToggle" type="button" aria-expanded="true" aria-controls="netBoard">Hide</button>
+        </div>
+        <svg id="netBoard" role="img" aria-label="HEALPix vertex map"></svg>
+      </section>
+    </main>
+
+    <script type="module" src="./src/go.js"></script>
+  </body>
+</html>

@@ -1,7 +1,7 @@
 {
-  "name": "healpix-othello",
+  "name": "healpix-game",
   "version": "0.1.0",
-  "description": "HEALPix NSIDE 2 Othello on a spherical board.",
+  "description": "Othello and Go on spherical HEALPix boards.",
   "private": true,
   "type": "module",
   "scripts": {

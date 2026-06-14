@@ -35,6 +35,85 @@ body {
   letter-spacing: 0;
 }
 
+body.home-page {
+  display: grid;
+  min-height: 100dvh;
+  overflow: auto;
+  place-items: center;
+}
+
+.game-home {
+  display: grid;
+  gap: 1.35rem;
+  width: min(56rem, calc(100vw - 2rem));
+  padding-block: 2rem;
+}
+
+.game-home-header {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+}
+
+.game-home-header h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3.35rem);
+  line-height: 0.95;
+}
+
+.game-home-header p {
+  margin: 0.45rem 0 0;
+  color: var(--muted);
+  font-size: 1rem;
+}
+
+.game-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem;
+}
+
+.game-card {
+  display: grid;
+  min-height: 12rem;
+  align-content: end;
+  gap: 0.55rem;
+  padding: 1.1rem;
+  border: 1px solid rgba(231, 238, 232, 0.18);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 78% 18%, rgba(118, 168, 255, 0.18), transparent 28%),
+    linear-gradient(145deg, rgba(42, 51, 53, 0.94), rgba(27, 32, 34, 0.94));
+  box-shadow: 0 1.1rem 2.4rem rgba(0, 0, 0, 0.22);
+  color: var(--text);
+  text-decoration: none;
+  transition:
+    border-color 160ms ease,
+    transform 160ms ease;
+}
+
+.game-card:hover,
+.game-card:focus-visible {
+  border-color: rgba(100, 195, 165, 0.72);
+  outline: none;
+  transform: translateY(-2px);
+}
+
+.game-card-kicker {
+  color: var(--green);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.game-card strong {
+  font-size: 1.35rem;
+}
+
+.game-card span:last-child {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 button {
   min-height: 2.4rem;
   border: 1px solid rgba(240, 239, 232, 0.18);
@@ -322,8 +401,28 @@ p {
 }
 
 .actions button,
+.actions select,
 .difficulty button {
   overflow-wrap: anywhere;
+}
+
+.go-control-stack {
+  width: min(100%, 42rem);
+}
+
+.go-control-stack .actions {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.go-control-stack .difficulty-row {
+  grid-template-columns: minmax(2.7rem, auto) repeat(5, minmax(0, 1fr));
+}
+
+.go-control-stack select {
+  min-height: 2.4rem;
+  width: 100%;
+  padding-inline: 0.35rem;
+  font-size: 0.82rem;
 }
 
 .difficulty {
@@ -513,7 +612,159 @@ p {
   display: block;
 }
 
+.go-net-panel {
+  width: min(25rem, 32vw);
+}
+
+.go-net-panel #netBoard {
+  aspect-ratio: 1.75;
+}
+
+.go-net-line {
+  stroke: rgba(238, 232, 210, 0.28);
+  stroke-linecap: round;
+  stroke-width: 0.045;
+}
+
+.go-net-vertex {
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.go-net-point {
+  fill: rgba(126, 150, 158, 0.92);
+  stroke: rgba(20, 29, 32, 0.76);
+  stroke-width: 0.055;
+  transition:
+    fill 140ms ease,
+    r 140ms ease,
+    stroke 140ms ease,
+    stroke-width 140ms ease;
+}
+
+.go-net-vertex.hovered .go-net-point {
+  fill: rgba(201, 101, 66, 0.96);
+  stroke: rgba(255, 228, 204, 0.9);
+  stroke-width: 0.085;
+}
+
+.go-net-vertex.last .go-net-point {
+  fill: rgba(158, 111, 239, 0.9);
+  stroke: rgba(237, 224, 255, 0.86);
+}
+
+.go-net-vertex.hint .go-net-point {
+  fill: rgba(240, 82, 190, 0.94);
+  stroke: rgba(255, 223, 248, 0.94);
+  stroke-width: 0.12;
+}
+
+.go-net-vertex.territory-black .go-net-point {
+  fill: rgba(126, 150, 158, 0.22);
+  stroke: #050607;
+  stroke-width: 0.18;
+}
+
+.go-net-vertex.territory-white .go-net-point {
+  fill: rgba(126, 150, 158, 0.22);
+  stroke: #f5f0df;
+  stroke-width: 0.18;
+}
+
+.go-net-vertex.territory-neutral .go-net-point {
+  fill: rgba(154, 160, 161, 0.76);
+  stroke: rgba(229, 232, 226, 0.5);
+}
+
+.go-net-owner {
+  display: none;
+  font-size: 0.78px;
+  font-weight: 900;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke-linejoin: round;
+  stroke-width: 0.16px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.go-net-vertex.territory-black .go-net-owner,
+.go-net-vertex.territory-white .go-net-owner {
+  display: block;
+}
+
+.go-net-vertex.territory-black .go-net-owner {
+  fill: #050607;
+  stroke: rgba(245, 240, 223, 0.88);
+}
+
+.go-net-vertex.territory-white .go-net-owner {
+  fill: #f5f0df;
+  stroke: rgba(0, 0, 0, 0.9);
+}
+
+.go-net-overlay-label {
+  display: none;
+  fill: #edf7f6;
+  font-size: 0.58px;
+  font-weight: 900;
+  paint-order: stroke;
+  pointer-events: none;
+  stroke: rgba(12, 18, 20, 0.9);
+  stroke-linejoin: round;
+  stroke-width: 0.14px;
+  text-anchor: middle;
+  dominant-baseline: central;
+}
+
+.go-net-vertex.show-overlay .go-net-overlay-label {
+  display: block;
+}
+
+.go-net-vertex.overlay-move .go-net-overlay-label {
+  fill: #f8edbe;
+  font-size: 0.62px;
+  stroke: rgba(0, 0, 0, 0.92);
+  stroke-width: 0.15px;
+}
+
+.go-net-stone {
+  display: none;
+  pointer-events: none;
+  stroke-width: 0.065;
+  transition:
+    opacity 140ms ease,
+    r 140ms ease;
+}
+
+.go-net-stone.black,
+.go-net-stone.white {
+  display: block;
+}
+
+.go-net-stone.black {
+  fill: #050607;
+  stroke: rgba(238, 232, 210, 0.58);
+}
+
+.go-net-stone.white {
+  fill: #eeeae0;
+  stroke: rgba(7, 8, 9, 0.62);
+}
+
+.go-net-stone.dead {
+  opacity: 0.38;
+}
+
 @media (max-width: 840px) {
+  .game-cards {
+    grid-template-columns: 1fr;
+  }
+
+  .game-card {
+    min-height: 10rem;
+  }
+
   .stage {
     min-height: 620px;
   }
@@ -540,6 +791,10 @@ p {
 
   .control-stack {
     justify-self: stretch;
+  }
+
+  .go-control-stack .actions {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .net-panel {

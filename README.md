@@ -1,20 +1,37 @@
-# HEALPix Othello
+# HEALPix Games
 
-Othello played on a spherical HEALPix `NSIDE=2` board. The app shows both a 3D sphere and a NESTED unfolded map, and moves can be played from either view.
+Board games on spherical HEALPix grids.
 
 Play:
 
-- English: https://toshiki-ms.github.io/healpix-othello/?lang=en
-- Japanese: https://toshiki-ms.github.io/healpix-othello/?lang=ja
+- Home: https://toshiki-ms.github.io/healpix-game/
+- Othello: https://toshiki-ms.github.io/healpix-game/othello.html?lang=en
+- Go: https://toshiki-ms.github.io/healpix-game/go.html?lang=en
 
-## Features
+## Games
+
+### HEALPix Othello
 
 - HEALPix `NSIDE=2` board with 48 cells
-- 3D spherical board with official HEALPix pixel boundaries
+- 3D spherical board with HEALPix pixel boundaries
 - NESTED unfolded map synchronized with the sphere
 - Human/NPC toggle for black and white
 - Per-side NPC difficulty settings
 - God-move hint mode
+- NEST/RING index overlays
+- English and Japanese UI
+
+### HEALPix Go
+
+- Stones are placed on HEALPix pixel vertices
+- HEALPix `NSIDE=2` and `NSIDE=4` boards
+- Polar vertices are neutral holes
+- Captures, suicide check, superko-like position history
+- Territory scoring with dead-stone marking
+- Human/NPC toggle for black and white
+- Per-side NPC difficulty settings
+- God-move hint mode
+- Vertex-index and move-order overlays
 - English and Japanese UI
 
 ## Development
@@ -25,6 +42,12 @@ npm run dev
 ```
 
 Open `http://localhost:4173/`.
+
+Pages:
+
+- `index.html`: game selector
+- `othello.html`: HEALPix Othello
+- `go.html`: HEALPix Go
 
 ## Checks
 

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   BLACK,
+  EMPTY,
   WHITE,
   applyMove,
   chooseAiMove,
@@ -10,8 +11,21 @@ import {
   passTurn,
   validMoves
 } from "./game.js";
+import {
+  analyzeGoMove,
+  applyGoMove,
+  chooseGoNpcMove,
+  classifyGoTerritory,
+  createGoState,
+  createPoleSet,
+  passGoTurn,
+  resumeGoGame,
+  scoreGoGame,
+  toggleDeadGroup,
+  validGoMoves
+} from "./go-game.js";
 import { HEALPIX_BOUNDARY_SEGMENTS_NSIDE2 } from "./healpix-boundaries-nside2.js";
-import { createHealpixTopology, pixelCount } from "./healpix.js";
+import { createHealpixTopology, createHealpixVertexTopology, pixelCount } from "./healpix.js";
 
 function bruteValidMoves(topology, board, player) {
   const moves = [];
@@ -56,6 +70,145 @@ assert.deepEqual(
   [46, 28, 29, 12, 18, 16, 45, 44],
   "NESTED south-cap transitions should wrap across base faces"
 );
+
+const goTopology = createHealpixVertexTopology(2);
+const goPoleIds = createPoleSet(goTopology);
+const goInitial = createGoState(goTopology);
+assert.equal(goTopology.vertices.length, 50, "NSIDE 2 HEALPix pixel vertices should include 50 unique points");
+assert.equal(goPoleIds.size, 2, "HEALPix Go should treat the two polar vertices as board holes");
+assert.equal(validGoMoves(goTopology, goInitial, goPoleIds).length, 48, "all non-polar vertices start legal");
+const goTopologyNside4 = createHealpixVertexTopology(4);
+const goPoleIdsNside4 = createPoleSet(goTopologyNside4);
+assert.equal(goTopologyNside4.vertices.length, 194, "NSIDE 4 HEALPix pixel vertices should include 194 unique points");
+assert.equal(goPoleIdsNside4.size, 2, "NSIDE 4 HEALPix Go should still have two polar board holes");
+assert.equal(
+  validGoMoves(goTopologyNside4, createGoState(goTopologyNside4), goPoleIdsNside4).length,
+  192,
+  "all non-polar NSIDE 4 vertices start legal"
+);
+for (const poleId of goPoleIds) {
+  assert.equal(analyzeGoMove(goTopology, goInitial, poleId, goPoleIds).reason, "pole");
+}
+const goOpening = validGoMoves(goTopology, goInitial, goPoleIds)[0];
+const afterGoOpening = applyGoMove(goTopology, goInitial, goOpening, goPoleIds);
+assert.ok(afterGoOpening, "a legal HEALPix Go move should apply");
+assert.equal(afterGoOpening.current, WHITE);
+assert.equal(afterGoOpening.moveNumbers[goOpening], 1, "HEALPix Go should keep the displayed move order");
+assert.equal(scoreGoGame(goTopology, afterGoOpening, goPoleIds).blackStones, 1);
+assert.equal(passGoTurn(passGoTurn(afterGoOpening)).gameOver, true, "two passes should end HEALPix Go");
+assert.ok(
+  validGoMoves(goTopology, goInitial, goPoleIds).includes(chooseGoNpcMove(goTopology, goInitial, goPoleIds)),
+  "HEALPix Go NPC should choose a legal opening move"
+);
+const weakGoOpening = chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: "weak" });
+assert.ok(
+  validGoMoves(goTopology, goInitial, goPoleIds).includes(weakGoOpening),
+  "weak HEALPix Go NPC should still choose a legal opening move"
+);
+for (const difficulty of ["medium", "strong", "expert", "god"]) {
+  const npcMove = chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: difficulty });
+  assert.ok(
+    npcMove === null || validGoMoves(goTopology, goInitial, goPoleIds).includes(npcMove),
+    `${difficulty} HEALPix Go NPC should choose a legal opening move or pass`
+  );
+}
+assert.equal(
+  chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: "expert" }),
+  chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: "expert" }),
+  "expert HEALPix Go NPC should be deterministic for the same position"
+);
+assert.equal(
+  chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: "god" }),
+  chooseGoNpcMove(goTopology, goInitial, goPoleIds, { level: "god" }),
+  "god HEALPix Go NPC should be deterministic for the same position"
+);
+
+const blackTerritoryToyTopology = {
+  vertices: Array.from({ length: 6 }, (_, id) => ({ id })),
+  neighbors(vertexId) {
+    return [
+      [1, 2, 3, 4],
+      [0, 2, 4, 5],
+      [0, 1, 3],
+      [0, 2, 4],
+      [0, 1, 3],
+      [1]
+    ][vertexId];
+  }
+};
+const blackTerritoryState = createGoState(blackTerritoryToyTopology);
+blackTerritoryState.board = [EMPTY, BLACK, BLACK, BLACK, BLACK, EMPTY];
+assert.equal(
+  chooseGoNpcMove(blackTerritoryToyTopology, blackTerritoryState, new Set()),
+  null,
+  "Go NPC should pass instead of filling its own territory"
+);
+for (const difficulty of ["medium", "strong", "expert", "god"]) {
+  assert.equal(
+    chooseGoNpcMove(blackTerritoryToyTopology, blackTerritoryState, new Set(), { level: difficulty }),
+    null,
+    `${difficulty} Go NPC should pass instead of filling its own territory`
+  );
+}
+const lateNeutralToyTopology = {
+  vertices: Array.from({ length: 6 }, (_, id) => ({ id })),
+  neighbors(vertexId) {
+    return [
+      [1],
+      [0],
+      [3],
+      [2],
+      [5],
+      [4]
+    ][vertexId];
+  }
+};
+const lateNeutralState = createGoState(lateNeutralToyTopology);
+lateNeutralState.board = [BLACK, WHITE, BLACK, WHITE, EMPTY, EMPTY];
+lateNeutralState.moveCount = 16;
+for (const difficulty of ["medium", "strong", "expert", "god"]) {
+  assert.equal(
+    chooseGoNpcMove(lateNeutralToyTopology, lateNeutralState, new Set(), { level: difficulty }),
+    null,
+    `${difficulty} Go NPC should pass instead of filling disconnected late neutral points`
+  );
+}
+const captureOrderToyTopology = {
+  vertices: Array.from({ length: 4 }, (_, id) => ({ id })),
+  neighbors(vertexId) {
+    return [
+      [1, 2, 3],
+      [0],
+      [0],
+      [0]
+    ][vertexId];
+  }
+};
+const captureOrderState = createGoState(captureOrderToyTopology);
+captureOrderState.board = [WHITE, BLACK, BLACK, EMPTY];
+captureOrderState.moveNumbers = [3, 1, 2, null];
+captureOrderState.moveCount = 3;
+const afterCaptureOrder = applyGoMove(captureOrderToyTopology, captureOrderState, 3, new Set());
+assert.equal(afterCaptureOrder.moveNumbers[0], null, "captured Go stones should lose their displayed move order");
+assert.equal(afterCaptureOrder.moveNumbers[3], 4, "new Go stones should receive the next displayed move order");
+const deadStoneState = createGoState(blackTerritoryToyTopology);
+deadStoneState.gameOver = true;
+deadStoneState.board = [EMPTY, BLACK, BLACK, BLACK, BLACK, WHITE];
+const deadMarkedState = toggleDeadGroup(blackTerritoryToyTopology, deadStoneState, 5, new Set());
+assert.equal(deadMarkedState.deadStones.has(5), true, "dead stone marking should toggle a whole group");
+assert.equal(scoreGoGame(blackTerritoryToyTopology, deadMarkedState, new Set()).blackScore, 3);
+assert.equal(classifyGoTerritory(blackTerritoryToyTopology, deadMarkedState, new Set()).ownerByPoint.get(5), BLACK);
+assert.equal(resumeGoGame(deadMarkedState).gameOver, false, "scoring should be resumable when players disagree");
+
+const superkoToyTopology = {
+  vertices: Array.from({ length: 2 }, (_, id) => ({ id })),
+  neighbors(vertexId) {
+    return vertexId === 0 ? [1] : [0];
+  }
+};
+const superkoState = createGoState(superkoToyTopology);
+superkoState.positionHistory.add("21");
+assert.equal(analyzeGoMove(superkoToyTopology, superkoState, 0, new Set()).reason, "ko");
 
 const initial = createInitialState(topology);
 assert.deepEqual(countPieces(initial.board), { black: 2, white: 2, empty: 44 });
