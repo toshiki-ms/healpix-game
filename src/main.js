@@ -27,6 +27,7 @@ const blackNpcToggle = document.querySelector("#blackNpcToggle");
 const whiteNpcToggle = document.querySelector("#whiteNpcToggle");
 const passButton = document.querySelector("#passButton");
 const resetButton = document.querySelector("#resetButton");
+const homeButton = document.querySelector("#homeButton");
 const controlStack = document.querySelector("#controlStack");
 const controlsToggle = document.querySelector("#controlsToggle");
 const languageToggle = document.querySelector("#languageToggle");
@@ -85,6 +86,8 @@ const TRANSLATIONS = {
     whiteShort: "White",
     human: "Human",
     npc: "NPC",
+    home: "Home",
+    homeLabel: "Back to HEALPix Games",
     pass: "Pass",
     newGame: "New",
     net: "Unfolded map",
@@ -137,6 +140,8 @@ const TRANSLATIONS = {
     whiteShort: "白",
     human: "PC",
     npc: "NPC",
+    home: "ホーム",
+    homeLabel: "HEALPix Gamesに戻る",
     pass: "パス",
     newGame: "新規",
     net: "展開図",
@@ -185,7 +190,8 @@ const TRANSLATIONS = {
 
 const languageOptions = new Set(Object.keys(TRANSLATIONS));
 const requestedLanguage = new URLSearchParams(window.location.search).get("lang");
-const storedLanguage = window.localStorage.getItem("healpixOthelloLanguage");
+const storedLanguage =
+  window.localStorage.getItem("healpixGameLanguage") ?? window.localStorage.getItem("healpixOthelloLanguage");
 let currentLanguage = languageOptions.has(requestedLanguage)
   ? requestedLanguage
   : languageOptions.has(storedLanguage)
@@ -350,6 +356,7 @@ whiteNpcToggle.addEventListener("click", () => toggleNpc(WHITE));
 passButton.addEventListener("click", requestPass);
 resetButton.addEventListener("click", resetGame);
 godHintButton.addEventListener("click", requestGodHint);
+homeButton.addEventListener("click", goHome);
 controlsToggle.addEventListener("click", toggleControlsPanel);
 languageToggle.addEventListener("click", toggleLanguage);
 netToggle.addEventListener("click", toggleNetPanel);
@@ -376,6 +383,8 @@ function applyLanguage() {
   whiteScoreLabel.textContent = text.whiteShort;
   blackDifficultyLabel.textContent = text.blackShort;
   whiteDifficultyLabel.textContent = text.whiteShort;
+  homeButton.textContent = text.home;
+  homeButton.setAttribute("aria-label", text.homeLabel);
   passButton.textContent = text.pass;
   resetButton.textContent = text.newGame;
   netTitle.textContent = text.net;
@@ -430,6 +439,7 @@ function handleCompactLayoutChange(event) {
 
 function toggleLanguage() {
   currentLanguage = currentLanguage === "en" ? "ja" : "en";
+  window.localStorage.setItem("healpixGameLanguage", currentLanguage);
   window.localStorage.setItem("healpixOthelloLanguage", currentLanguage);
   const url = new URL(window.location.href);
   url.searchParams.set("lang", currentLanguage);
@@ -437,6 +447,12 @@ function toggleLanguage() {
   applyLanguage();
   updatePlayerButtons();
   refresh();
+}
+
+function goHome() {
+  const url = new URL("./", window.location.href);
+  url.searchParams.set("lang", currentLanguage);
+  window.location.href = url.href;
 }
 
 function buildHealpixBoundaries() {

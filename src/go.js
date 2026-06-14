@@ -50,6 +50,7 @@ const resetButton = document.querySelector("#resetButton");
 const godHintButton = document.querySelector("#godHintButton");
 const goOverlayToggle = document.querySelector("#goOverlayToggle");
 const controlStack = document.querySelector("#controlStack");
+const homeButton = document.querySelector("#homeButton");
 const controlsToggle = document.querySelector("#controlsToggle");
 const languageToggle = document.querySelector("#languageToggle");
 const hud = document.querySelector(".hud");
@@ -133,6 +134,8 @@ const TRANSLATIONS = {
     hideSettings: "Hide settings",
     showSettingsLabel: "Show game settings",
     hideSettingsLabel: "Hide game settings",
+    home: "Home",
+    homeLabel: "Back to HEALPix Games",
     showMap: "Open",
     hideMap: "Hide",
     showMapLabel: "Show vertex map",
@@ -197,6 +200,8 @@ const TRANSLATIONS = {
     hideSettings: "設定を隠す",
     showSettingsLabel: "ゲーム設定を表示",
     hideSettingsLabel: "ゲーム設定を隠す",
+    home: "ホーム",
+    homeLabel: "HEALPix Gamesに戻る",
     showMap: "開く",
     hideMap: "隠す",
     showMapLabel: "頂点展開図を表示",
@@ -223,7 +228,8 @@ const TRANSLATIONS = {
 
 const languageOptions = new Set(Object.keys(TRANSLATIONS));
 const requestedLanguage = new URLSearchParams(window.location.search).get("lang");
-const storedLanguage = window.localStorage.getItem("healpixGoLanguage");
+const storedLanguage =
+  window.localStorage.getItem("healpixGameLanguage") ?? window.localStorage.getItem("healpixGoLanguage");
 let currentLanguage = languageOptions.has(requestedLanguage)
   ? requestedLanguage
   : languageOptions.has(storedLanguage)
@@ -435,6 +441,7 @@ passButton.addEventListener("click", requestPass);
 territoryToggle.addEventListener("click", toggleTerritory);
 resetButton.addEventListener("click", resetGame);
 goOverlayToggle.addEventListener("click", toggleOverlayMode);
+homeButton.addEventListener("click", goHome);
 controlsToggle.addEventListener("click", toggleControlsPanel);
 languageToggle.addEventListener("click", toggleLanguage);
 netToggle.addEventListener("click", toggleNetPanel);
@@ -472,6 +479,8 @@ function applyLanguage() {
   }
   netTitle.textContent = text.net;
   axisTextZ.textContent = text.axisNorth;
+  homeButton.textContent = text.home;
+  homeButton.setAttribute("aria-label", text.homeLabel);
   languageToggle.textContent = text.switchLanguage;
   languageToggle.setAttribute("aria-label", text.switchLanguageLabel);
   updatePanelVisibility();
@@ -517,6 +526,7 @@ function handleCompactLayoutChange(event) {
 
 function toggleLanguage() {
   currentLanguage = currentLanguage === "en" ? "ja" : "en";
+  window.localStorage.setItem("healpixGameLanguage", currentLanguage);
   window.localStorage.setItem("healpixGoLanguage", currentLanguage);
   const url = new URL(window.location.href);
   url.searchParams.set("lang", currentLanguage);
@@ -524,6 +534,12 @@ function toggleLanguage() {
   applyLanguage();
   updatePlayerButtons();
   refresh();
+}
+
+function goHome() {
+  const url = new URL("./", window.location.href);
+  url.searchParams.set("lang", currentLanguage);
+  window.location.href = url.href;
 }
 
 function changeGoNside() {

@@ -12,22 +12,23 @@
         <span class="planet-mark" aria-hidden="true"></span>
         <div>
           <h1>HEALPix Games</h1>
-          <p>Board games on spherical HEALPix grids.</p>
+          <p id="homeLead">Board games on spherical HEALPix grids.</p>
         </div>
       </header>
 
       <nav class="game-cards" aria-label="Game selection">
-        <a class="game-card" href="./othello.html">
+        <a class="game-card" id="othelloLink" href="./othello.html">
           <span class="game-card-kicker">NSIDE 2</span>
           <strong>HEALPix Othello</strong>
-          <span>Spherical Othello with NPC difficulty, god-move hints, and index overlays.</span>
+          <span id="othelloDescription">Spherical Othello with NPC difficulty, god-move hints, and index overlays.</span>
         </a>
-        <a class="game-card" href="./go.html">
+        <a class="game-card" id="goLink" href="./go.html">
           <span class="game-card-kicker">NSIDE 2 / 4</span>
           <strong>HEALPix Go</strong>
-          <span>Go on HEALPix pixel vertices with territory view, NPC difficulty, and move-order overlays.</span>
+          <span id="goDescription">Go on HEALPix pixel vertices with territory view, NPC difficulty, and move-order overlays.</span>
         </a>
       </nav>
     </main>
+    <script type="module" src="./src/home.js"></script>
   </body>
 </html>
