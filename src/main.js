@@ -611,7 +611,7 @@ function rebuildIndexSprites() {
 function createIndexLabelSprite(label) {
   const canvas = document.createElement("canvas");
   const context = canvas.getContext("2d");
-  const width = label.includes("/") ? 184 : 92;
+  const width = label.includes("/") ? 128 : 62;
   const height = 48;
   const pixelRatio = 2;
   canvas.width = width * pixelRatio;
@@ -638,7 +638,7 @@ function createIndexLabelSprite(label) {
     depthWrite: false
   });
   const sprite = new THREE.Sprite(material);
-  const scale = label.includes("/") ? 0.34 : 0.22;
+  const scale = label.includes("/") ? 0.19 : 0.115;
   sprite.scale.set(scale, scale * (height / width), 1);
   return sprite;
 }
