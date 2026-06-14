@@ -268,6 +268,7 @@ let pointerDown = null;
 let hasCameraFocusTarget = false;
 let focusHoldUntil = 0;
 const compactLayoutQuery = window.matchMedia("(max-width: 640px)");
+const coarsePointerQuery = window.matchMedia("(pointer: coarse)");
 let controlsCollapsed = compactLayoutQuery.matches;
 let netCollapsed = compactLayoutQuery.matches;
 let panelChoiceChanged = false;
@@ -610,7 +611,13 @@ function buildPoints() {
   pointGroup.clear();
   hitTargetGroup.clear();
   pointMeshes.clear();
-  const hitTargetScale = topology.nside === 2 ? 0.14 : 0.085;
+  const hitTargetScale = topology.nside === 2
+    ? coarsePointerQuery.matches
+      ? 0.23
+      : 0.14
+    : coarsePointerQuery.matches
+      ? 0.12
+      : 0.085;
 
   for (const vertex of topology.vertices) {
     if (poleIds.has(vertex.id)) {
@@ -1384,7 +1391,8 @@ function onPointerDown(event) {
   pointerDown = {
     x: event.clientX,
     y: event.clientY,
-    id: event.pointerId
+    id: event.pointerId,
+    type: event.pointerType
   };
   hasCameraFocusTarget = false;
   focusHoldUntil = 0;
@@ -1407,9 +1415,10 @@ function onPointerUp(event) {
   }
 
   const dragDistance = Math.hypot(event.clientX - pointerDown.x, event.clientY - pointerDown.y);
+  const tapMoveLimit = pointerDown.type === "touch" || pointerDown.type === "pen" ? 16 : 6;
   pointerDown = null;
 
-  if (dragDistance > 6 || isNpcTurn()) {
+  if (dragDistance > tapMoveLimit || isNpcTurn()) {
     return;
   }
 
@@ -1437,11 +1446,7 @@ function pickVertex(event) {
   pointer.y = -(((event.clientY - bounds.top) / bounds.height) * 2 - 1);
   raycaster.setFromCamera(pointer, camera);
 
-  const targets =
-    event.pointerType === "touch" || event.pointerType === "pen"
-      ? hitTargetGroup.children
-      : [...stoneGroup.children, ...pointGroup.children];
-  const intersections = raycaster.intersectObjects(targets, false);
+  const intersections = raycaster.intersectObjects(hitTargetGroup.children, false);
   for (const intersection of intersections) {
     if (intersection.object.position.dot(camera.position) > 0) {
       return intersection.object.userData.vertexId;
