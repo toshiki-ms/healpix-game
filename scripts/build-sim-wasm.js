@@ -70,9 +70,11 @@ const linkerExportNames = [...exportNames, "__stack_pointer"];
 const exportFlags = linkerExportNames.flatMap((name) => [`-Wl,--export=${name}`]);
 const emccExports = `[${exportNames.map((name) => `'_${name}'`).join(",")}]`;
 
-if (commandExists("clang")) {
-  run("clang", [
-    "--target=wasm32-unknown-unknown",
+if (zigCommand) {
+  run(zigCommand, [
+    "cc",
+    "-target",
+    "wasm32-freestanding",
     "-O3",
     "-flto",
     "-msimd128",
@@ -87,11 +89,9 @@ if (commandExists("clang")) {
     output
   ]);
   console.log(`wrote ${output}`);
-} else if (zigCommand) {
-  run(zigCommand, [
-    "cc",
-    "-target",
-    "wasm32-freestanding",
+} else if (commandExists("clang")) {
+  run("clang", [
+    "--target=wasm32-unknown-unknown",
     "-O3",
     "-flto",
     "-msimd128",
