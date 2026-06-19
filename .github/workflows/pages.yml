@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/asteroid
   workflow_dispatch:
 
 permissions:
@@ -34,8 +35,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run logic tests
-        run: npm run test:logic
+      - name: Build simulation WASM
+        run: npm run build:sim-wasm
+
+      - name: Run tests
+        run: npm test
+
+      - name: Run asteroid balance check
+        run: npm run test:asteroid-balance
 
       - name: Build
         run: npm run build

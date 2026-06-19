@@ -1,0 +1,15 @@
+{
+  "source": "ERA5 monthly averaged data on single levels",
+  "variable": "total_cloud_cover",
+  "shape": [
+    12,
+    181,
+    361
+  ],
+  "dtype": "uint8",
+  "scale": "value / 255",
+  "latitude": "south_to_north_-90_to_90_inclusive_1deg",
+  "longitude": "west_to_east_-180_to_180_inclusive_1deg",
+  "input": "CDS download: era5-total-cloud-cover-monthly-2014-2023.nc",
+  "years": "2014:2023"
+}

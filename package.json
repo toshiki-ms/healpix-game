@@ -10,13 +10,21 @@
     "serve": "vite --host 0.0.0.0 --port 4173",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173",
-    "test": "npm run test:logic",
-    "test:logic": "node src/game.test.js"
+    "test": "npm run test:logic && npm run test:native-sim",
+    "test:logic": "node src/game.test.js",
+    "test:native-sim": "node scripts/check-native-sim-kernel.js",
+    "test:asteroid-balance": "node scripts/check-asteroid-balance-fast.js",
+    "check:asteroid": "node scripts/check-asteroid-balance.js",
+    "build:sim-wasm": "node scripts/build-sim-wasm.js",
+    "generate:earth-land": "node scripts/generate-earth-land-fractions.js",
+    "generate:earth-cloud": "python scripts/generate-era5-cloud-climatology.py --download",
+    "generate:rbf-fd": "node scripts/generate-rbf-fd-operators.js"
   },
   "dependencies": {
     "three": "0.184.0"
   },
   "devDependencies": {
+    "@ziglang/cli": "^0.0.14",
     "playwright": "1.60.0",
     "vite": "8.0.16"
   }

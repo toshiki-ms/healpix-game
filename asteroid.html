@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>HEALPix Asteroid Garden</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="stage asteroid-stage" aria-label="HEALPix Asteroid Garden">
+      <canvas id="board"></canvas>
+      <div class="sun-marker" id="sunMarker" aria-hidden="true"></div>
+      <div class="axis-widget" id="axisWidget" aria-hidden="true">
+        <svg viewBox="0 0 160 160">
+          <defs>
+            <marker id="axisArrowX" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#f26f63" />
+            </marker>
+            <marker id="axisArrowY" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#7edc8a" />
+            </marker>
+            <marker id="axisArrowZ" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse">
+              <path d="M0,0 L9,4.5 L0,9 Z" fill="#76a8ff" />
+            </marker>
+          </defs>
+          <line id="axisLineZ" class="axis-line axis-line-z" x1="78" y1="82" x2="78" y2="18" marker-end="url(#axisArrowZ)" />
+          <line id="axisLineSouth" class="axis-line axis-line-south" x1="78" y1="82" x2="78" y2="140" marker-end="url(#axisArrowZ)" />
+          <line id="axisLineY" class="axis-line axis-line-y" x1="78" y1="82" x2="36" y2="38" marker-end="url(#axisArrowY)" />
+          <line id="axisLineX" class="axis-line axis-line-x" x1="78" y1="82" x2="136" y2="92" marker-end="url(#axisArrowX)" />
+          <circle class="axis-origin" cx="78" cy="82" r="5" />
+          <text id="axisTextZ" class="axis-text axis-text-z" x="102" y="27">+Z North</text>
+          <text id="axisTextY" class="axis-text axis-text-y" x="34" y="31">+Y</text>
+          <text id="axisTextX" class="axis-text axis-text-x" x="132" y="115">+X</text>
+        </svg>
+      </div>
+      <div class="colorbar-panel" id="colorbarPanel" hidden>
+        <div class="colorbar-head">
+          <span id="colorbarTitle">Scale</span>
+          <span id="colorbarUnit"></span>
+        </div>
+        <div class="colorbar-gradient" id="colorbarGradient"></div>
+        <div class="colorbar-values">
+          <span id="colorbarMin"></span>
+          <span id="colorbarMid"></span>
+          <span id="colorbarMax"></span>
+        </div>
+      </div>
+
+      <section class="hud asteroid-hud" aria-label="asteroid status">
+        <div class="title-block">
+          <span class="planet-mark" aria-hidden="true"></span>
+          <div>
+            <h1>Asteroid Garden</h1>
+            <p id="resolutionLabel">NSIDE 8 / Day 1</p>
+          </div>
+          <div class="title-actions">
+            <button class="panel-toggle" id="homeButton" type="button">Home</button>
+            <button class="panel-toggle" id="controlsToggle" type="button" aria-expanded="true" aria-controls="simulationControls">Hide settings</button>
+          </div>
+        </div>
+
+        <div class="asteroid-meters" aria-live="polite">
+          <div class="asteroid-meter"><span id="dayLabel">Day</span><strong id="dayValue">1/100</strong></div>
+          <div class="asteroid-meter"><span id="actionLabel">Time</span><strong id="actionValue">06:00</strong></div>
+          <div class="asteroid-meter"><span id="healthLabel">Selected</span><strong id="healthValue">0</strong></div>
+          <div class="asteroid-meter"><span id="roseLabel">Rose cells</span><strong id="roseValue">1</strong></div>
+        </div>
+
+        <div class="control-stack asteroid-control-stack" id="controlStack">
+          <div class="actions asteroid-actions">
+            <select id="asteroidPlanetSelect" aria-label="Planet preset">
+              <option value="asteroid">Asteroid</option>
+              <option value="earth">Earth</option>
+            </select>
+            <select id="asteroidNsideSelect" aria-label="NSIDE">
+              <option value="2">NS 2</option>
+              <option value="4">NS 4</option>
+              <option value="8">NS 8</option>
+              <option value="16">NS 16</option>
+              <option value="32">NS 32</option>
+              <option value="64">NS 64</option>
+            </select>
+            <select id="asteroidViewSelect" aria-label="View layer">
+              <optgroup data-view-group="land" label="Land">
+                <option value="landUse">Land use</option>
+                <option value="substrate">Substrate</option>
+                <option value="elevation">Terrain height</option>
+              </optgroup>
+              <optgroup data-view-group="soil" label="Soil nutrients and carbon">
+                <option value="soilNutrient">Mineral nutrients</option>
+                <option value="soilCarbon">Soil organic carbon</option>
+                <option value="carbonBudget">Carbon flux</option>
+              </optgroup>
+              <optgroup data-view-group="water" label="Hydrology">
+                <option value="surfaceWater">Surface ponding</option>
+                <option value="topSoilWater">Soil water: upper layer</option>
+                <option value="midSoilWater">Soil water: middle layer</option>
+                <option value="deepSoilWater">Soil water: lower layer</option>
+                <option value="topSoilHead">Soil water head: upper</option>
+                <option value="midSoilHead">Soil water head: middle</option>
+                <option value="deepSoilHead">Soil water head: lower</option>
+                <option value="topSoilK">Hydraulic conductivity: upper</option>
+                <option value="midSoilK">Hydraulic conductivity: middle</option>
+                <option value="deepSoilK">Hydraulic conductivity: lower</option>
+                <option value="groundwater">Groundwater storage</option>
+                <option value="groundwaterHead">Groundwater hydraulic head</option>
+                <option value="waterPotential">Soil water potential: upper</option>
+                <option value="rootStress">Root water availability</option>
+                <option value="waterBudget">Water movement</option>
+                <option value="snowIce">Snow and ice</option>
+              </optgroup>
+              <optgroup data-view-group="weather" label="Weather and light">
+                <option value="rainfall">Rain</option>
+                <option value="cloudCover">Cloud cover</option>
+                <option value="meanTemp">Mean temperature</option>
+                <option value="koppen">Köppen climate</option>
+                <option value="sunlight">Sunlight</option>
+                <option value="apar">Absorbed PAR</option>
+              </optgroup>
+              <optgroup data-view-group="vegetation" label="Vegetation">
+                <option value="leafArea">Leaf area</option>
+                <option value="vegetation">Vegetation</option>
+                <option value="seedBank">Seed bank</option>
+                <option value="height">Plant height</option>
+              </optgroup>
+            </select>
+            <button class="colorbar-toggle" id="colorbarToggle" type="button" aria-pressed="false">Scale</button>
+            <button id="waterButton" type="button">Water</button>
+            <button id="releaseWaterButton" type="button">Release</button>
+            <button id="pullButton" type="button">Pull</button>
+            <button id="burnButton" type="button">Burn</button>
+            <button id="cleanButton" type="button">Clean</button>
+            <button id="observeButton" type="button">Observe</button>
+            <button id="sunsetButton" type="button">Sunset</button>
+            <button id="restButton" type="button">Rest</button>
+            <button id="endDayButton" type="button">Wait</button>
+            <button id="resetButton" type="button">New</button>
+          </div>
+          <div class="simulation-controls" id="simulationControls">
+            <label>
+              <span id="annualPrecipParamLabel">Annual rain</span>
+              <input id="annualPrecipParam" type="range" min="0" max="1100" step="10" value="120" />
+              <output id="annualPrecipParamValue">120 mm/y</output>
+            </label>
+            <label>
+              <span id="dryDaysParamLabel">Dry days</span>
+              <input id="dryDaysParam" type="range" min="20" max="350" step="5" value="315" />
+              <output id="dryDaysParamValue">315 d</output>
+            </label>
+            <label>
+              <span id="rainPatchinessParamLabel">Patchiness</span>
+              <input id="rainPatchinessParam" type="range" min="0" max="1" step="0.05" value="0.78" />
+              <output id="rainPatchinessParamValue">0.78</output>
+            </label>
+            <label>
+              <span id="rainScaleParamLabel">Storm size</span>
+              <input id="rainScaleParam" type="range" min="5" max="40" step="1" value="18" />
+              <output id="rainScaleParamValue">18 km</output>
+            </label>
+            <label>
+              <span id="asteroidMeanTempParamLabel">Mean temp</span>
+              <input id="asteroidMeanTempParam" type="range" min="-8" max="26" step="0.5" value="16" />
+              <output id="asteroidMeanTempParamValue">16.0 C</output>
+            </label>
+            <label>
+              <span id="asteroidDiurnalRangeParamLabel">Day-night range</span>
+              <input id="asteroidDiurnalRangeParam" type="range" min="4" max="28" step="0.5" value="16" />
+              <output id="asteroidDiurnalRangeParamValue">16.0 C</output>
+            </label>
+            <label>
+              <span id="asteroidLatitudeRangeParamLabel">Latitude range</span>
+              <input id="asteroidLatitudeRangeParam" type="range" min="0" max="12" step="0.5" value="3" />
+              <output id="asteroidLatitudeRangeParamValue">3.0 C</output>
+            </label>
+            <label>
+              <span id="evaporationParamLabel">Evaporation</span>
+              <input id="evaporationParam" type="range" min="0.5" max="1.8" step="0.05" value="1.45" />
+              <output id="evaporationParamValue">1.45x</output>
+            </label>
+            <label>
+              <span id="gwFlowParamLabel">GW conductivity</span>
+              <input id="gwFlowParam" type="range" min="0" max="0.08" step="0.002" value="0.006" />
+              <output id="gwFlowParamValue">0.006 m/d</output>
+            </label>
+            <label>
+              <span id="rootDepthParamLabel">Root depth</span>
+              <input id="rootDepthParam" type="range" min="1" max="8" step="0.1" value="4.6" />
+              <output id="rootDepthParamValue">4.6</output>
+            </label>
+            <label>
+              <span id="shadeParamLabel">Shade</span>
+              <input id="shadeParam" type="range" min="0" max="2.3" step="0.05" value="1.12" />
+              <output id="shadeParamValue">1.12x</output>
+            </label>
+            <label>
+              <span id="roseGrowthParamLabel">Rose growth</span>
+              <input id="roseGrowthParam" type="range" min="0.6" max="1.8" step="0.05" value="0.8" />
+              <output id="roseGrowthParamValue">0.80x</output>
+            </label>
+            <label>
+              <span id="baobabGrowthParamLabel">Baobab growth</span>
+              <input id="baobabGrowthParam" type="range" min="0.6" max="2.2" step="0.05" value="1" />
+              <output id="baobabGrowthParamValue">1.00x</output>
+            </label>
+            <label>
+              <span id="co2ParamLabel">Atmospheric CO2</span>
+              <input id="co2Param" type="range" min="280" max="900" step="10" value="430" />
+              <output id="co2ParamValue">430 ppm</output>
+            </label>
+            <label>
+              <span id="storageParamLabel">Trunk storage</span>
+              <input id="storageParam" type="range" min="0" max="1.8" step="0.05" value="1.12" />
+              <output id="storageParamValue">1.12x</output>
+            </label>
+            <label>
+              <span id="actionTimeScaleParamLabel">Action scale</span>
+              <input id="actionTimeScaleParam" type="range" min="1" max="80" step="1" value="1" />
+              <output id="actionTimeScaleParamValue">1x</output>
+            </label>
+            <button class="simulation-reset-button" id="resetSettingsButton" type="button">Reset settings</button>
+          </div>
+        </div>
+      </section>
+
+      <output class="status-line asteroid-status" id="message" aria-live="polite">Click any cell to choose a patch.</output>
+      <ol class="event-log asteroid-event-log" id="eventLog" aria-label="Asteroid events"></ol>
+
+      <section class="net-panel asteroid-net-panel" aria-label="HEALPix flat map">
+        <div class="net-head">
+          <span id="netTitle">Flat map</span>
+          <button class="panel-toggle net-toggle" id="netToggle" type="button" aria-expanded="true" aria-controls="netBoard">Hide</button>
+        </div>
+        <canvas id="netBoard" role="img" aria-label="HEALPix flat map"></canvas>
+      </section>
+    </main>
+    <script type="module" src="./src/asteroid.js"></script>
+  </body>
+</html>

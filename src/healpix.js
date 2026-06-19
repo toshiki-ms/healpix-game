@@ -82,6 +82,7 @@ const CORNER_TARGET = Object.freeze({
     [3, 0, 0]
   ])
 });
+const spreadBitsTableCache = new Map();
 
 export function modulo(value, size) {
   return ((value % size) + size) % size;
@@ -129,6 +130,11 @@ function ringHeight(ring, nside) {
 }
 
 function spreadBits(value, nside) {
+  const table = spreadBitsTableForNside(nside);
+  if (table) {
+    return table[value] ?? 0;
+  }
+
   let spread = 0;
   let bit = 0;
 
@@ -140,6 +146,30 @@ function spreadBits(value, nside) {
   return spread;
 }
 
+function spreadBitsTableForNside(nside) {
+  let table = spreadBitsTableCache.get(nside);
+  if (table) {
+    return table;
+  }
+
+  if (!Number.isInteger(nside) || nside <= 0 || nside > 65536) {
+    return null;
+  }
+
+  table = new Uint32Array(nside);
+  for (let value = 0; value < nside; value += 1) {
+    let spread = 0;
+    let bit = 0;
+    while (1 << bit < nside) {
+      spread |= ((value >> bit) & 1) << (2 * bit);
+      bit += 1;
+    }
+    table[value] = spread;
+  }
+  spreadBitsTableCache.set(nside, table);
+  return table;
+}
+
 function nestedId(face, ix, iy, nside) {
   return face * nside * nside + spreadBits(iy, nside) + 2 * spreadBits(ix, nside);
 }
@@ -148,15 +178,47 @@ function isPowerOfTwo(value) {
   return value > 0 && (value & (value - 1)) === 0;
 }
 
-function centerPhiFromGrid(rawJp, nside) {
-  return wrapTau(((rawJp - 1) * Math.PI) / (4 * nside));
+function centerPhiFromGrid(rawJp, ring, nside) {
+  return wrapTau(((centerPhiRawFromGrid(rawJp, ring, nside) - 1) * Math.PI) / (4 * nside));
+}
+
+function centerPhiRawFromGrid(rawJp, ring, nside) {
+  if (ring < nside) {
+    const anchor = nearestPolarAnchor(rawJp, nside);
+    return anchor + (rawJp - anchor) * (nside / ring);
+  }
+
+  if (ring > 3 * nside) {
+    const anchor = nearestPolarAnchor(rawJp, nside);
+    return anchor + (rawJp - anchor) * (nside / (4 * nside - ring));
+  }
+
+  return rawJp;
+}
+
+function nearestPolarAnchor(rawJp, nside) {
+  const period = 8 * nside;
+  const anchors = [nside + 1, 3 * nside + 1, 5 * nside + 1, 7 * nside + 1];
+  let best = anchors[0];
+  let bestDistance = Infinity;
+
+  for (const anchor of anchors) {
+    const wrappedAnchor = anchor + Math.round((rawJp - anchor) / period) * period;
+    const distance = Math.abs(rawJp - wrappedAnchor);
+    if (distance < bestDistance) {
+      best = wrappedAnchor;
+      bestDistance = distance;
+    }
+  }
+
+  return best;
 }
 
 function createNestedCell(face, ix, iy, nside) {
   const id = nestedId(face, ix, iy, nside);
   const ring = FACE_RING_ANCHORS[face] * nside - ix - iy - 1;
   const rawJp = FACE_PHI_ANCHORS[face] * nside - ix + iy + 1;
-  const phi = centerPhiFromGrid(rawJp, nside);
+  const phi = centerPhiFromGrid(rawJp, ring, nside);
   const height = ringHeight(ring, nside);
   const horizontalRadius = Math.sqrt(Math.max(0, 1 - height * height));
   const normal = [
@@ -275,27 +337,28 @@ export function createHealpixTopology(nside = DEFAULT_NSIDE) {
   const maxRing = ringCount(nside);
   const cells = new Array(pixelCount(nside));
   const rings = new Map();
+  const ringBuckets = Array.from({ length: maxRing + 1 }, () => []);
 
   for (let face = 0; face < 12; face += 1) {
     for (let ix = 0; ix < nside; ix += 1) {
       for (let iy = 0; iy < nside; iy += 1) {
         const cell = createNestedCell(face, ix, iy, nside);
         cells[cell.id] = cell;
+        ringBuckets[cell.ring].push(cell.id);
       }
     }
   }
 
   let ringIndex = 0;
   for (let ring = 1; ring <= maxRing; ring += 1) {
-    const ids = cells
-      .filter((cell) => cell.ring === ring)
-      .sort((a, b) => a.phi - b.phi)
-      .map((cell, column) => {
-        cell.column = column;
-        cell.nphi = ringCellCount(ring, nside);
-        cell.ringIndex = ringIndex + column;
-        return cell.id;
-      });
+    const ids = ringBuckets[ring];
+    ids.sort((a, b) => cells[a].phi - cells[b].phi);
+    for (let column = 0; column < ids.length; column += 1) {
+      const cell = cells[ids[column]];
+      cell.column = column;
+      cell.nphi = ringCellCount(ring, nside);
+      cell.ringIndex = ringIndex + column;
+    }
 
     rings.set(ring, ids);
     ringIndex += ids.length;
