@@ -6426,6 +6426,68 @@ static inline void sim_rose_allocation(
   *out_root = weight_total > 1.0e-12f ? sim_max(0.0f, root_weight) / weight_total : 0.0f;
 }
 
+static inline void sim_limit_competing_structural_sinks(
+  float pool,
+  float model_dt_days,
+  float *loss,
+  float *catabolic
+) {
+  float safe_loss = sim_max(0.0f, *loss);
+  float safe_catabolic = sim_max(0.0f, *catabolic);
+  const float total = safe_loss + safe_catabolic;
+  if (total <= 0.0f) {
+    *loss = 0.0f;
+    *catabolic = 0.0f;
+    return;
+  }
+  const float max_flux = sim_max(0.0f, pool) / sim_max(1.0e-9f, model_dt_days);
+  if (total > max_flux) {
+    const float scale = max_flux / total;
+    safe_loss *= scale;
+    safe_catabolic *= scale;
+  }
+  *loss = safe_loss;
+  *catabolic = safe_catabolic;
+}
+
+static void sim_apply_nutrient_transport_range(
+  int32_t start,
+  int32_t end,
+  float model_dt_days,
+  float *SIM_RESTRICT soil_mineral_n,
+  const float *SIM_RESTRICT soil_mineral_transport,
+  const float *SIM_RESTRICT rose_fertility
+) {
+  for (int32_t i = start; i < end; i += 1) {
+    const float cap = 1.35f + 0.25f * sim_clamp(rose_fertility[i] / 1.8f, 0.0f, 1.0f);
+    soil_mineral_n[i] = sim_clamp(
+      soil_mineral_n[i] + model_dt_days * soil_mineral_transport[i],
+      0.005f,
+      cap
+    );
+  }
+}
+
+static void sim_apply_nutrient_transport_active(
+  int32_t active_count,
+  uintptr_t active_ids_offset,
+  float model_dt_days,
+  float *SIM_RESTRICT soil_mineral_n,
+  const float *SIM_RESTRICT soil_mineral_transport,
+  const float *SIM_RESTRICT rose_fertility
+) {
+  const int32_t *SIM_RESTRICT active_ids = (const int32_t *)(uintptr_t)active_ids_offset;
+  for (int32_t cell_offset = 0; cell_offset < active_count; cell_offset += 1) {
+    const int32_t i = sim_active_cell_id(active_ids_offset, active_ids, cell_offset);
+    const float cap = 1.35f + 0.25f * sim_clamp(rose_fertility[i] / 1.8f, 0.0f, 1.0f);
+    soil_mineral_n[i] = sim_clamp(
+      soil_mineral_n[i] + model_dt_days * soil_mineral_transport[i],
+      0.005f,
+      cap
+    );
+  }
+}
+
 static inline void sim_update_soil_biogeochemistry_cell(
   int32_t i,
   float model_dt_days,
@@ -6454,6 +6516,7 @@ static inline void sim_update_soil_biogeochemistry_cell(
   float *SIM_RESTRICT soil_carbon_stable_next,
   float *SIM_RESTRICT soil_mineral_n_next
 ) {
+  (void)soil_mineral_transport;
   const float wetness_clamped = sim_clamp(wetness, 0.0f, 1.0f);
   const float aggregate_litter = sim_max(0.0f, litter_carbon[i]);
   float litter_fast = litter_fast_carbon[i];
@@ -6504,16 +6567,21 @@ static inline void sim_update_soil_biogeochemistry_cell(
     );
   const float leaching = (0.00045f + 0.0032f * wetness * wetness) * leachable_n;
   const float nutrient_supply =
-    soil_mineral_transport[i] +
     0.38f * mineralization +
     organic_nitrogen_release +
     mineral_weathering +
     ash_weathering;
-  const float available_nutrient_uptake =
+  const float available_nutrient_loss =
     sim_max(0.0f, soil_mineral_n[i] - 0.005f) / sim_max(1.0e-6f, model_dt_days) +
     sim_max(0.0f, nutrient_supply);
-  const float plant_nutrient_uptake_actual =
-    sim_min(sim_max(0.0f, plant_nutrient_uptake), available_nutrient_uptake);
+  float plant_nutrient_uptake_actual = sim_max(0.0f, plant_nutrient_uptake);
+  float leaching_actual = sim_max(0.0f, leaching);
+  const float nutrient_loss_demand = plant_nutrient_uptake_actual + leaching_actual;
+  if (nutrient_loss_demand > available_nutrient_loss && nutrient_loss_demand > 0.0f) {
+    const float scale = available_nutrient_loss / nutrient_loss_demand;
+    plant_nutrient_uptake_actual *= scale;
+    leaching_actual *= scale;
+  }
   const float next_litter_fast =
     sim_clamp(litter_fast + model_dt_days * (litter_fast_input - fast_decay), 0.0f, 1.4f);
   const float next_litter_slow =
@@ -6530,7 +6598,7 @@ static inline void sim_update_soil_biogeochemistry_cell(
           (
             nutrient_supply -
             plant_nutrient_uptake_actual -
-            leaching
+            leaching_actual
           ),
       0.005f,
       1.35f + 0.25f * sim_clamp(rose_soil / 1.8f, 0.0f, 1.0f)
@@ -6920,9 +6988,9 @@ static void sim_update_plant_carbon_seeds_impl(
       const float unmet_deficit = sim_max(0.0f, deficit - mobilized);
       const float catabolic_respiration = sim_min(unmet_deficit, b_mass / model_dt_days);
       const float residual_deficit = sim_max(0.0f, unmet_deficit - catabolic_respiration);
-      const float catabolic_leaf = catabolic_respiration * (b_leaf / b_mass);
-      const float catabolic_stem = catabolic_respiration * (b_stem / b_mass);
-      const float catabolic_root = catabolic_respiration * (b_root / b_mass);
+      float catabolic_leaf = catabolic_respiration * (b_leaf / b_mass);
+      float catabolic_stem = catabolic_respiration * (b_stem / b_mass);
+      float catabolic_root = catabolic_respiration * (b_root / b_mass);
       const float seed_output_b = sim_max(0.0f, baobab_seed_prod);
       const float seed_from_npp_b = sim_min(positive_npp * SIM_BAOBAB_SEED_NPP_ALLOCATION_FRACTION, seed_output_b);
       const float seed_from_store_b = sim_min(sim_max(0.0f, seed_output_b - seed_from_npp_b), sim_max(0.0f, b_store) / model_dt_days);
@@ -6944,9 +7012,12 @@ static void sim_update_plant_carbon_seeds_impl(
       const float leaf_loss_rate = 0.0011f * (1.0f + 1.05f * drought + 0.34f * shade) + mortality_b * 0.42f + starvation * 0.18f;
       const float stem_loss_rate = 0.00004f * (1.0f + 0.04f * drought) + mortality_b * 0.06f + starvation * 0.01f;
       const float root_loss_rate = 0.00032f * (1.0f + 0.08f * drought) + mortality_b * 0.1f + starvation * 0.03f;
-      const float leaf_loss = leaf_loss_rate * b_leaf;
-      const float stem_loss = stem_loss_rate * b_stem;
-      const float root_loss = root_loss_rate * b_root;
+      float leaf_loss = leaf_loss_rate * b_leaf;
+      float stem_loss = stem_loss_rate * b_stem;
+      float root_loss = root_loss_rate * b_root;
+      sim_limit_competing_structural_sinks(b_leaf, model_dt_days, &leaf_loss, &catabolic_leaf);
+      sim_limit_competing_structural_sinks(b_stem, model_dt_days, &stem_loss, &catabolic_stem);
+      sim_limit_competing_structural_sinks(b_root, model_dt_days, &root_loss, &catabolic_root);
       baobab_leaf_next[i] = sim_max(0.0f, b_leaf + model_dt_days * (growth_carbon * alloc_leaf + seed_establishment * 0.18f - leaf_loss - catabolic_leaf));
       baobab_stem_next[i] = sim_max(0.0f, b_stem + model_dt_days * (growth_carbon * alloc_stem + seed_establishment * 0.22f - stem_loss - catabolic_stem));
       baobab_root_next[i] = sim_max(0.0f, b_root + model_dt_days * (growth_carbon * alloc_root + seed_establishment * 0.6f - root_loss - catabolic_root));
@@ -7084,9 +7155,9 @@ static void sim_update_plant_carbon_seeds_impl(
       const float r_unmet_deficit = sim_max(0.0f, r_deficit - r_mobilized);
       const float r_catabolic_respiration = sim_min(r_unmet_deficit, r_mass / model_dt_days);
       const float r_residual_deficit = sim_max(0.0f, r_unmet_deficit - r_catabolic_respiration);
-      const float r_catabolic_leaf = r_catabolic_respiration * (r_leaf / r_mass);
-      const float r_catabolic_flower = r_catabolic_respiration * (r_flower / r_mass);
-      const float r_catabolic_root = r_catabolic_respiration * (r_root / r_mass);
+      float r_catabolic_leaf = r_catabolic_respiration * (r_leaf / r_mass);
+      float r_catabolic_flower = r_catabolic_respiration * (r_flower / r_mass);
+      float r_catabolic_root = r_catabolic_respiration * (r_root / r_mass);
       const float r_positive_npp = sim_max(0.0f, carbon_balance_r);
       const float r_seed_output = sim_max(0.0f, rose_seed_prod);
       const float r_seed_from_npp = sim_min(r_positive_npp * SIM_ROSE_SEED_NPP_ALLOCATION_FRACTION, r_seed_output);
@@ -7112,9 +7183,12 @@ static void sim_update_plant_carbon_seeds_impl(
       const float r_leaf_loss_rate = (1.0f / 900.0f) * (1.0f + 1.15f * r_drought + 0.4f * r_shade + 0.45f * ash_load) + mortality_r * 0.95f + r_starvation;
       const float r_flower_loss_rate = (1.0f / 420.0f) * (1.0f + 1.5f * r_drought + 0.65f * r_shade + 0.7f * ash_load) + mortality_r * 1.32f + r_starvation * 1.45f;
       const float r_root_loss_rate = (1.0f / 1200.0f) * (1.0f + 0.45f * r_drought) + mortality_r * 0.68f + r_starvation * 0.78f;
-      const float r_leaf_loss = r_leaf_loss_rate * r_leaf;
-      const float r_flower_loss = r_flower_loss_rate * r_flower;
-      const float r_root_loss = r_root_loss_rate * r_root;
+      float r_leaf_loss = r_leaf_loss_rate * r_leaf;
+      float r_flower_loss = r_flower_loss_rate * r_flower;
+      float r_root_loss = r_root_loss_rate * r_root;
+      sim_limit_competing_structural_sinks(r_leaf, model_dt_days, &r_leaf_loss, &r_catabolic_leaf);
+      sim_limit_competing_structural_sinks(r_flower, model_dt_days, &r_flower_loss, &r_catabolic_flower);
+      sim_limit_competing_structural_sinks(r_root, model_dt_days, &r_root_loss, &r_catabolic_root);
       rose_leaf_next[i] = sim_max(0.0f, r_leaf + model_dt_days * (r_growth_carbon * r_alloc_leaf + r_seed_establishment * (0.4f - establishment_flower_share * 0.45f) - r_leaf_loss - r_catabolic_leaf));
       rose_flower_next[i] = sim_max(0.0f, r_flower + model_dt_days * (r_growth_carbon * r_alloc_flower + r_seed_establishment * establishment_flower_share - r_flower_loss - r_catabolic_flower));
       rose_root_next[i] = sim_max(0.0f, r_root + model_dt_days * (r_growth_carbon * r_alloc_root + r_seed_establishment * (0.6f - establishment_flower_share * 0.55f) - r_root_loss - r_catabolic_root));
@@ -9005,6 +9079,14 @@ SIM_EXPORT void sim_step_ecosystem(uintptr_t params_offset) {
     SPU(FLUX_X),
     SPU(FLUX_Y)
   );
+  sim_apply_nutrient_transport_active(
+    active_count,
+    active_offset,
+    model_dt_days,
+    (float *)(uintptr_t)SPU(SOIL_MINERAL_N),
+    (const float *)(uintptr_t)SPU(SOIL_MINERAL_TRANSPORT),
+    (const float *)(uintptr_t)SPU(ROSE_FERTILITY)
+  );
 
   sim_update_canopy_environment_photosynthesis(
     size,
@@ -9600,6 +9682,14 @@ static void sim_step_ecosystem_setup_to_seed(const uint32_t *params, int32_t inc
     SPF(SURFACE_FILM_THRESHOLD_M),
     SPU(FLUX_X),
     SPU(FLUX_Y)
+  );
+  sim_apply_nutrient_transport_active(
+    active_count,
+    active_offset,
+    model_dt_days,
+    (float *)(uintptr_t)SPU(SOIL_MINERAL_N),
+    (const float *)(uintptr_t)SPU(SOIL_MINERAL_TRANSPORT),
+    (const float *)(uintptr_t)SPU(ROSE_FERTILITY)
   );
 
   sim_fill_float(SPU(BAOBAB_SEED_TRANSPORT), size, 0.0f);
@@ -13104,6 +13194,14 @@ static void sim_step_ecosystem_parallel_worker_impl(
       sim_transport_divergence_chunk(params, active_count, active_ids_offset);
     }
     sim_profile_add(profile_offset, profile_stride, thread_id, SIM_PROFILE_DIVERGENCE, phase_start);
+    sim_apply_nutrient_transport_range(
+      range_start,
+      range_end,
+      SPF(MODEL_DT_DAYS),
+      (float *)(uintptr_t)SPU(SOIL_MINERAL_N),
+      (const float *)(uintptr_t)SPU(SOIL_MINERAL_TRANSPORT),
+      (const float *)(uintptr_t)SPU(ROSE_FERTILITY)
+    );
     phase_start = sim_profile_clock(profile_offset);
     sim_step_ecosystem_cell_canopy_updates(
       params,

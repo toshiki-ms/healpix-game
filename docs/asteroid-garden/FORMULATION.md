@@ -547,9 +547,21 @@ I^{can}
 =
 \min\left[
 P f_{\mathrm{int}},
+\max\left(
+0,
 \frac{C^{max}_{\mathrm{canopy}}-C_{\mathrm{canopy}}}{\Delta t_h}
 +E_{\mathrm{canopy}}
+\right)
 \right].
+$$
+
+樹冠蒸発も、当期に利用できる樹冠水を超えない。
+
+$$
+E^{act}_{\mathrm{canopy}}
+\le
+\frac{C_{\mathrm{canopy}}}{\Delta t_h}+
+I^{can}.
 $$
 
 蒸発散需要は Penman-Monteith 型の近似で求める。
@@ -565,15 +577,18 @@ $$
 $$
 U_{p,\ell}
 =
+\max\left[
+0,
 G^{root}_{p,\ell}
-\left(\psi_{\ell,i}-\psi^{\mathrm{plant}}_p\right),
+\left(\psi_{\ell,i}-\psi^{\mathrm{plant}}_p\right)
+\right]
 \qquad
 \left[G^{root}_{p,\ell}\right]=\mathrm{day^{-1}},
 \qquad
-\sum_\ell U_{p,\ell}\le Demand_p.
+\sum_{\ell=0}^{2}U_{p,\ell}+U^g_p\le Demand_p.
 $$
 
-$G^{root}_{p,\ell}$ は根分布 $f^{root}_{p,\ell}$、層透水性 $K_{\ell,i}$、層ストレス $S_{p,\ell}$、有効経路長をまとめた根水理コンダクタンスである。$p$ はバオバブまたはバラ。
+$G^{root}_{p,\ell}$ は根分布 $f^{root}_{p,\ell}$、層透水性 $K_{\ell,i}$、層ストレス $S_{p,\ell}$、有効経路長をまとめた根水理コンダクタンスである。$p$ はバオバブまたはバラ。現在の実装では、地下水吸水 $U^g_p$ はバオバブだけが使い、バラでは $U^g_R=0$ とする。
 
 植物体内の水貯留は明示的に持たないので、実蒸散は実際に根・地下水から吸えた量に等しい。
 
@@ -625,15 +640,15 @@ $$
 
 $$
 \begin{aligned}
-A_n &= \min(W_c,W_j)-R_d,\\
+A_g &= \min(W_c,W_j),\\
 VPD^* &= \max(VPD,VPD_{\min}),\\
-A_n^+ &= \max(0,A_n),\\
+A_n^+ &= \max(0,A_g),\\
 g_s &= g_0+1.6\left(1+\frac{g_1}{\sqrt{VPD^*}}\right)\frac{A_n^+}{C_a},\\
 GPP_p &= F\left(APAR_p,V_{c\max,p}(T),J_{\max,p}(T),C_i,g_s,water_p,nutrient_p,CO_2\right).
 \end{aligned}
 $$
 
-$p$ はバオバブまたはバラ。温度応答 $V_{c\max}(T), J_{\max}(T)$ は lookup 化する。
+$p$ はバオバブまたはバラ。温度応答 $V_{c\max}(T), J_{\max}(T)$ は lookup 化する。実装で炭素プールへ入れる `GPP` は $R_d$ 控除後の純同化ではなく、$A_g$ に基づく総同化である。葉・花・根・幹・貯蔵の維持呼吸は後段の $R^m_p$ にまとめる。
 
 診断用の light-use-efficiency GPP は、
 
@@ -726,11 +741,11 @@ $$
 $$
 \begin{aligned}
 (B^L)^{n+1}
-&= B^L+\Delta t_s\left(a^L_B G_B+e^L_B G^{seed}_B-Loss^L_B-C^{cat,L}_B\right),\\
+&= B^L+\Delta t_s\left(a^L_B G_B+G^{seed,L}_B-Loss^L_B-C^{cat,L}_B\right),\\
 (B^S)^{n+1}
-&= B^S+\Delta t_s\left(a^S_B G_B+e^S_B G^{seed}_B-Loss^S_B-C^{cat,S}_B\right),\\
+&= B^S+\Delta t_s\left(a^S_B G_B+G^{seed,S}_B-Loss^S_B-C^{cat,S}_B\right),\\
 (B^R)^{n+1}
-&= B^R+\Delta t_s\left(a^R_B G_B+e^R_B G^{seed}_B-Loss^R_B-C^{cat,R}_B\right),\\
+&= B^R+\Delta t_s\left(a^R_B G_B+G^{seed,R}_B-Loss^R_B-C^{cat,R}_B\right),\\
 (B^Q)^{n+1}
 &= B^Q+\Delta t_s\left(A^Q_B-M_B-P^{seed,Q}_B\right).
 \end{aligned}
@@ -743,11 +758,11 @@ $$
 $$
 \begin{aligned}
 (R^L)^{n+1}
-&= R^L+\Delta t_s\left(a^L_R G_R+e^L_R G^{seed}_R-Loss^L_R-C^{cat,L}_R\right),\\
+&= R^L+\Delta t_s\left(a^L_R G_R+G^{seed,L}_R-Loss^L_R-C^{cat,L}_R\right),\\
 (R^F)^{n+1}
-&= R^F+\Delta t_s\left(a^F_R G_R+e^F_R G^{seed}_R-Loss^F_R-C^{cat,F}_R\right),\\
+&= R^F+\Delta t_s\left(a^F_R G_R+G^{seed,F}_R-Loss^F_R-C^{cat,F}_R\right),\\
 (R^R)^{n+1}
-&= R^R+\Delta t_s\left(a^R_R G_R+e^R_R G^{seed}_R-Loss^R_R-C^{cat,R}_R\right),\\
+&= R^R+\Delta t_s\left(a^R_R G_R+G^{seed,R}_R-Loss^R_R-C^{cat,R}_R\right),\\
 (R^Q)^{n+1}
 &= R^Q+\Delta t_s\left(A^Q_R-M_R-P^{seed,Q}_R\right).
 \end{aligned}
@@ -761,6 +776,16 @@ $$
 Loss^x_p
 = C^x_p\lambda^x_p(stress,light,ash,mortality,starvation).
 $$
+
+同じ構造炭素プールから同時に出る turnover 損失と異化消費は、合計が当期に利用できるプール量を超えないように共同で制限する。
+
+$$
+Loss^{x,act}_p+C^{cat,x,act}_p
+\le
+\frac{C^x_p}{\Delta t_s}.
+$$
+
+超える場合は、$Loss^x_p$ と $C^{cat,x}_p$ を同じ比率で縮小する。turnover 損失はリターへ入り、異化消費は維持呼吸不足を補う大気側の炭素流出として扱う。
 
 ### 種子生産・散布・発芽
 
@@ -908,22 +933,34 @@ $$
 -\nabla\cdot(\mathbf{u}^N_i N^{mobile}_i).
 $$
 
-利用可能無機養分指数全体は、
+水に乗った輸送は水文刻みで適用する。
+
+$$
+N_i^\star
+=
+N_i^n
++\sum_{\Delta t_h\in\Delta t_s}\Delta t_h\,T^N_i.
+$$
+
+slow step では、輸送後の $N_i^\star$ に反応項を加える。
 
 $$
 N_i^{n+1}
-= N_i+\Delta t_s\left(
-T^N_i
-+0.38\,Mineralization_i
-+OrganicRelease_i
-+MineralWeathering_i
-+AshWeathering_i
+=
+N_i^\star+\Delta t_s\left(
+S^N_i
 -Uptake^{act}_i
--Leaching_i
-\right).
+-Leaching^{act}_i
+\right),
 $$
 
-である。
+$$
+S^N_i
+=0.38\,Mineralization_i
++OrganicRelease_i
++MineralWeathering_i
++AshWeathering_i.
+$$
 
 植物吸収は GPP に比例する形で、
 
@@ -936,21 +973,16 @@ $$
 
 $$
 \begin{aligned}
-N^{supply}_i
-&=T^N_i
-+0.38\,Mineralization_i
-+OrganicRelease_i
-+MineralWeathering_i
-+AshWeathering_i,\\
-Uptake^{act}_i
+\mathcal{A}^N_i
 &=
-\min\left[
-Uptake^{demand}_i,
-\frac{\max(0,N_i-N^{min})}{\Delta t_s}
-+\max(0,N^{supply}_i)
-\right].
+\frac{\max(0,N_i^\star-N^{min})}{\Delta t_s}
++\max(0,S^N_i),\\
+Uptake^{act}_i+Leaching^{act}_i
+&\le \mathcal{A}^N_i.
 \end{aligned}
 $$
+
+実装では、需要量 $Uptake^{demand}_i$ と leaching 需要の合計が $\mathcal{A}^N_i$ を超える場合、両者を同じ比率で縮小する。
 
 `0.38` は分解炭素から無機養分指数へ換算する現在の簡略係数である。より厳密な窒素質量モデルへ進める場合は、有機養分プールと C:N 比を明示する。
 

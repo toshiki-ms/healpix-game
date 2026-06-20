@@ -3296,6 +3296,21 @@ function limitNutrientTransport(model, output) {
   }
 }
 
+function applyNutrientTransport(model, dtDays = MODEL_DT_DAYS) {
+  const { state, size } = model;
+  const activeCellIds = model.activeCellIds;
+  const cellCount = activeCellIds ? activeCellIds.length : size;
+  for (let cellOffset = 0; cellOffset < cellCount; cellOffset += 1) {
+    const i = activeCellIds ? activeCellIds[cellOffset] : cellOffset;
+    const cap = 1.35 + 0.25 * clamp(state.roseFertility[i] / 1.8);
+    state.soilMineralN[i] = clamp(
+      state.soilMineralN[i] + dtDays * state.soilMineralTransport[i],
+      0.005,
+      cap
+    );
+  }
+}
+
 function updateSoilBiogeochemistryFromInputs(model) {
   const { state, size } = model;
   const activeCellIds = model.activeCellIds;
@@ -3350,18 +3365,21 @@ function updateSoilBiogeochemistryFromInputs(model) {
       );
     const leaching = (0.00045 + 0.0032 * wetness * wetness) * leachableN;
     const nutrientSupply =
-      state.soilMineralTransport[i] +
       0.38 * mineralization +
       organicNitrogenRelease +
       mineralWeathering +
       ashWeathering;
-    const availableNutrientUptake =
+    const availableNutrientLoss =
       Math.max(0, state.soilMineralN[i] - 0.005) / MODEL_DT_DAYS +
       Math.max(0, nutrientSupply);
-    const plantNutrientUptakeActual = Math.min(
-      Math.max(0, state.soilBioPlantNutrientUptake[i]),
-      availableNutrientUptake
-    );
+    let plantNutrientUptakeActual = Math.max(0, state.soilBioPlantNutrientUptake[i]);
+    let leachingActual = Math.max(0, leaching);
+    const nutrientLossDemand = plantNutrientUptakeActual + leachingActual;
+    if (nutrientLossDemand > availableNutrientLoss && nutrientLossDemand > 0) {
+      const scale = availableNutrientLoss / nutrientLossDemand;
+      plantNutrientUptakeActual *= scale;
+      leachingActual *= scale;
+    }
     state.litterFastCarbonN[i] = clamp(
       fastCarbon + MODEL_DT_DAYS * (state.soilBioLitterFastInput[i] - fastDecay),
       0,
@@ -3381,7 +3399,7 @@ function updateSoilBiogeochemistryFromInputs(model) {
           (
             nutrientSupply -
             plantNutrientUptakeActual -
-            leaching
+            leachingActual
           ),
       0.005,
       1.35 + 0.25 * clamp(state.roseFertility[i] / 1.8)
@@ -5187,6 +5205,21 @@ function seedMortalityRate(wetness, tempC, baseRate, droughtSensitivity) {
   return baseRate + droughtSensitivity * drought + 0.035 * heat;
 }
 
+function limitCompetingStructuralSinks(pool, loss, catabolic, dtDays = MODEL_DT_DAYS) {
+  const safeLoss = Math.max(0, loss);
+  const safeCatabolic = Math.max(0, catabolic);
+  const total = safeLoss + safeCatabolic;
+  if (total <= 0) {
+    return { loss: 0, catabolic: 0 };
+  }
+  const maxFlux = Math.max(0, pool) / Math.max(1e-9, dtDays);
+  if (total <= maxFlux) {
+    return { loss: safeLoss, catabolic: safeCatabolic };
+  }
+  const scale = maxFlux / total;
+  return { loss: safeLoss * scale, catabolic: safeCatabolic * scale };
+}
+
 function updateBaobabCarbonPoolsInto(
   out,
   state,
@@ -5243,9 +5276,9 @@ function updateBaobabCarbonPoolsInto(
   const unmetDeficit = Math.max(0, deficit - mobilized);
   const catabolicRespiration = Math.min(unmetDeficit, mass / MODEL_DT_DAYS);
   const residualDeficit = Math.max(0, unmetDeficit - catabolicRespiration);
-  const catabolicLeaf = catabolicRespiration * (leaf / mass);
-  const catabolicStem = catabolicRespiration * (stem / mass);
-  const catabolicRoot = catabolicRespiration * (root / mass);
+  let catabolicLeaf = catabolicRespiration * (leaf / mass);
+  let catabolicStem = catabolicRespiration * (stem / mass);
+  let catabolicRoot = catabolicRespiration * (root / mass);
   const positiveNpp = Math.max(0, carbonBalance);
   const seedOutputRate = Math.max(0, seedOutput ?? 0);
   const seedFromNpp = Math.min(positiveNpp * BAOBAB_SEED_NPP_ALLOCATION_FRACTION, seedOutputRate);
@@ -5285,9 +5318,18 @@ function updateBaobabCarbonPoolsInto(
   const leafLossRate = traits.leafTurnover * (1 + 1.05 * drought + 0.34 * shade) + mortality * 0.42 + starvation * 0.18;
   const stemLossRate = traits.stemTurnover * (1 + 0.04 * drought) + mortality * 0.06 + starvation * 0.01;
   const rootLossRate = traits.rootTurnover * (1 + 0.08 * drought) + mortality * 0.1 + starvation * 0.03;
-  const leafLoss = leafLossRate * leaf;
-  const stemLoss = stemLossRate * stem;
-  const rootLoss = rootLossRate * root;
+  let leafLoss = leafLossRate * leaf;
+  let stemLoss = stemLossRate * stem;
+  let rootLoss = rootLossRate * root;
+  const leafSinks = limitCompetingStructuralSinks(leaf, leafLoss, catabolicLeaf);
+  const stemSinks = limitCompetingStructuralSinks(stem, stemLoss, catabolicStem);
+  const rootSinks = limitCompetingStructuralSinks(root, rootLoss, catabolicRoot);
+  leafLoss = leafSinks.loss;
+  catabolicLeaf = leafSinks.catabolic;
+  stemLoss = stemSinks.loss;
+  catabolicStem = stemSinks.catabolic;
+  rootLoss = rootSinks.loss;
+  catabolicRoot = rootSinks.catabolic;
   if (writeDiagnostics) {
     state.baobabLeafLossCarbon[i] = leafLoss;
     state.baobabStemLossCarbon[i] = stemLoss;
@@ -5349,9 +5391,9 @@ function updateRoseCarbonPoolsInto(
   const unmetDeficit = Math.max(0, deficit - mobilized);
   const catabolicRespiration = Math.min(unmetDeficit, mass / MODEL_DT_DAYS);
   const residualDeficit = Math.max(0, unmetDeficit - catabolicRespiration);
-  const catabolicLeaf = catabolicRespiration * (leaf / mass);
-  const catabolicFlower = catabolicRespiration * (flower / mass);
-  const catabolicRoot = catabolicRespiration * (root / mass);
+  let catabolicLeaf = catabolicRespiration * (leaf / mass);
+  let catabolicFlower = catabolicRespiration * (flower / mass);
+  let catabolicRoot = catabolicRespiration * (root / mass);
   const positiveNpp = Math.max(0, carbonBalance);
   const seedOutputRate = Math.max(0, seedOutput ?? 0);
   const seedFromNpp = Math.min(positiveNpp * ROSE_SEED_NPP_ALLOCATION_FRACTION, seedOutputRate);
@@ -5393,9 +5435,18 @@ function updateRoseCarbonPoolsInto(
   const leafLossRate = traits.leafTurnover * (1 + 1.15 * drought + 0.4 * shade + 0.45 * ashLoad) + mortality * 0.95 + starvation;
   const flowerLossRate = traits.flowerTurnover * (1 + 1.5 * drought + 0.65 * shade + 0.7 * ashLoad) + mortality * 1.32 + starvation * 1.45;
   const rootLossRate = traits.rootTurnover * (1 + 0.45 * drought) + mortality * 0.68 + starvation * 0.78;
-  const leafLoss = leafLossRate * leaf;
-  const flowerLoss = flowerLossRate * flower;
-  const rootLoss = rootLossRate * root;
+  let leafLoss = leafLossRate * leaf;
+  let flowerLoss = flowerLossRate * flower;
+  let rootLoss = rootLossRate * root;
+  const leafSinks = limitCompetingStructuralSinks(leaf, leafLoss, catabolicLeaf);
+  const flowerSinks = limitCompetingStructuralSinks(flower, flowerLoss, catabolicFlower);
+  const rootSinks = limitCompetingStructuralSinks(root, rootLoss, catabolicRoot);
+  leafLoss = leafSinks.loss;
+  catabolicLeaf = leafSinks.catabolic;
+  flowerLoss = flowerSinks.loss;
+  catabolicFlower = flowerSinks.catabolic;
+  rootLoss = rootSinks.loss;
+  catabolicRoot = rootSinks.catabolic;
   if (writeDiagnostics) {
     state.roseLeafLossCarbon[i] = leafLoss;
     state.roseFlowerLossCarbon[i] = flowerLoss;
@@ -5749,6 +5800,7 @@ function step(model, options = {}) {
   if (!usedCombinedDarcySurfaceTransport) {
     transportSurfaceNutrientSeedsRbf(model);
   }
+  applyNutrientTransport(model, MODEL_DT_DAYS);
   if (profileSink) {
     const now = performance.now();
     addProfileTime(profileSink, "surfaceNutrientSeedsTransport", now - profileSectionStart);
@@ -6543,15 +6595,21 @@ function step(model, options = {}) {
       const leachableN = state.soilMineralN[i] * nutrientMobileFraction(s0, gwSat, soilCarbonActive[i], soilCarbonStable[i]);
       const leaching = (0.00045 + 0.0032 * wetness * wetness) * leachableN;
       const nutrientSupply =
-        soilMineralTransport[i] +
         0.38 * mineralization +
         organicNitrogenRelease +
         mineralWeathering +
         ashWeathering;
-      const availableNutrientUptake =
+      const availableNutrientLoss =
         Math.max(0, state.soilMineralN[i] - 0.005) / MODEL_DT_DAYS +
         Math.max(0, nutrientSupply);
-      const plantNutrientUptakeActual = Math.min(Math.max(0, plantNutrientUptake), availableNutrientUptake);
+      let plantNutrientUptakeActual = Math.max(0, plantNutrientUptake);
+      let leachingActual = Math.max(0, leaching);
+      const nutrientLossDemand = plantNutrientUptakeActual + leachingActual;
+      if (nutrientLossDemand > availableNutrientLoss && nutrientLossDemand > 0) {
+        const scale = availableNutrientLoss / nutrientLossDemand;
+        plantNutrientUptakeActual *= scale;
+        leachingActual *= scale;
+      }
       litterFastCarbonN[i] = clamp(litterFastCarbon[i] + MODEL_DT_DAYS * (litterFastInput - fastDecay), 0, 1.4);
       litterSlowCarbonN[i] = clamp(litterSlowCarbon[i] + MODEL_DT_DAYS * (litterSlowInput - slowDecay), 0, 1.8);
       soilCarbonActiveN[i] = clamp(soilCarbonActive[i] + MODEL_DT_DAYS * (humified - activeDecay), 0, 2.4);
@@ -6584,7 +6642,7 @@ function step(model, options = {}) {
       }
       soilMineralNN[i] = clamp(
         state.soilMineralN[i] +
-          MODEL_DT_DAYS * (nutrientSupply - plantNutrientUptakeActual - leaching),
+          MODEL_DT_DAYS * (nutrientSupply - plantNutrientUptakeActual - leachingActual),
         0.005,
         1.35 + 0.25 * clamp(roseSoil / 1.8)
       );
