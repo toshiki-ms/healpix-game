@@ -169,6 +169,34 @@ const WATERING_RATE_M_DAY = 0.008;
 const DISCHARGE_RATE_M_DAY = 0.018 / ACTION_DT_DAYS;
 const DISCHARGE_RADIUS_NEIGHBOR_SCALE = 1.8;
 const DISCHARGE_EDGE_WEIGHT = 0.42;
+const SHEEP_GRAZE_WORK_PER_DAY = 0.11;
+const SHEEP_MAX_BAOBAB_SPROUT_MASS = 0.22;
+const SHEEP_MAX_ROSE_SPROUT_MASS = 0.16;
+const SHEEP_DUNG_CARBON_RETURN_FRACTION = 0.38;
+const SHEEP_RESPIRATION_CARBON_FRACTION = 0.48;
+const SHEEP_BODY_CARBON_FRACTION = 0.08;
+const SHEEP_DUNG_NUTRIENT_RETURN_FRACTION = 0.028;
+const SHEEP_INITIAL_ENERGY = 1.0;
+const SHEEP_MAX_ENERGY = 1.45;
+const SHEEP_MAINTENANCE_COST_PER_DAY = 0.018;
+const SHEEP_ENERGY_GAIN_PER_CARBON = 3.8;
+const SHEEP_MEMORY_REWARD_SCALE = 7.5;
+const SHEEP_MEMORY_LEARNING_RATE = 0.35;
+const SHEEP_MEMORY_DECAY_PER_DAY = 0.18;
+const SHEEP_MEMORY_WEIGHT = 0.18;
+const SHEEP_MEMORY_MAX = 1.8;
+const SHEEP_LOOKAHEAD_RINGS = 3;
+const SHEEP_LOOKAHEAD_WEIGHT = 1.45;
+const SHEEP_LOOKAHEAD_DECAY = 0.62;
+const SHEEP_LOOKAHEAD_BULK_WEIGHT = 0.08;
+const SHEEP_RECENT_VISIT_PENALTY = 0.035;
+const SHEEP_TRAIL_LENGTH = 7;
+const SHEEP_SOFTMAX_TEMPERATURE = 0.08;
+const SHEEP_SOFTMAX_TEMPERATURE_MIN = 0.04;
+const SHEEP_BAOBAB_SPROUT_VALUE = 1.25;
+const SHEEP_ROSE_SPROUT_VALUE = 0.78;
+const SHEEP_FIRE_AVOIDANCE = 0.9;
+const SHEEP_WET_AVOIDANCE = 0.16;
 const EARTH_ROSE_PULL_THRESHOLD = 0.08;
 const EARTH_DESERT_RAIN_THRESHOLD_MM = 250;
 const EARTH_FOREST_RAIN_THRESHOLD_MM = 680;
@@ -182,9 +210,6 @@ const EARTH_BAOBAB_HUMID_PENALTY_END_MM = 1400;
 const ROSE_PATCH_MARKER_THRESHOLD = 0.16;
 const BAOBAB_REFERENCE_HEIGHT_M = 25;
 const ROSE_REFERENCE_HEIGHT_M = 1.2;
-const MAX_HIGH_RES_EARTH_OBJECT_MARKERS = 260;
-const MAX_HIGH_RES_ASTEROID_OBJECT_MARKERS = 360;
-const MAX_MID_RES_OBJECT_MARKERS = 520;
 const ARROW_KEYS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 const ASTEROID_MAX_NSIDE = 64;
 const IS_VITE_DEV = Boolean(import.meta.env?.DEV);
@@ -304,6 +329,7 @@ const releaseWaterButton = document.querySelector("#releaseWaterButton");
 const pullButton = document.querySelector("#pullButton");
 const burnButton = document.querySelector("#burnButton");
 const cleanButton = document.querySelector("#cleanButton");
+const sheepButton = document.querySelector("#sheepButton");
 const observeButton = document.querySelector("#observeButton");
 const sunsetButton = document.querySelector("#sunsetButton");
 const restButton = document.querySelector("#restButton");
@@ -514,6 +540,7 @@ const TRANSLATIONS = {
     pull: "Pull",
     burn: "Burn",
     clean: "Clean",
+    sheep: "Keep sheep",
     observe: "Observe",
     sunset: "Sunset",
     rest: "Rest",
@@ -634,6 +661,12 @@ const TRANSLATIONS = {
     cleanedHeavy: "You worked through the thick ash and returned what you could to the soil. Some ash still remains.",
     cleanedSnowIce: "You cleared snow and surface ice, exposing the ground.",
     cleanedAshAndSnowIce: "You cleared ash, snow, and surface ice from the ground.",
+    sheepReleased: "A sheep began wandering over nearby land, learning where young shoots tend to appear.",
+    sheepOcean: "Sheep cannot be released on the ocean.",
+    sheepAsteroidUnavailable: "There are no sheep on the little asteroid.",
+    sheepGrazed: "The sheep clipped young shoots and left nutrients in the nearby soil. It will remember this patch for a while.",
+    sheepNoSprouts: "The sheep wandered nearby, but found no young shoots to graze.",
+    sheepGone: "A sheep could not find enough young shoots for a long time and disappeared from the garden.",
     sunsetMemory: "You watched the sunset and kept the color in memory.",
     sunsetCloudy: "The weather was poor today, and the sunset could not be seen.",
     restMessage: (duration) => `You rested and let ${duration} pass.`,
@@ -803,6 +836,7 @@ const TRANSLATIONS = {
     pull: "抜く",
     burn: "火入れ",
     clean: "掃除",
+    sheep: "羊を飼う",
     observe: "観察",
     sunset: "夕日",
     rest: "休む",
@@ -923,6 +957,12 @@ const TRANSLATIONS = {
     cleanedHeavy: "厚く積もった灰を削るように払い、土に戻した。まだ少し残っている。",
     cleanedSnowIce: "雪と表層の氷を払い、地面を少し出した。",
     cleanedAshAndSnowIce: "灰と雪氷を払い、地面を少し出した。",
+    sheepReleased: "羊を放した。羊は近くの陸地を歩き、若い芽が出やすい場所を少しずつ覚えていく。",
+    sheepOcean: "海には羊を放てない。",
+    sheepAsteroidUnavailable: "小惑星には羊はいない。",
+    sheepGrazed: "羊が若い芽を摘み、近くの土に養分を落とした。この場所をしばらく覚えている。",
+    sheepNoSprouts: "羊は近くを歩いたが、摘むほどの若い芽は見つからなかった。",
+    sheepGone: "長いあいだ若い芽を見つけられなかった羊が、庭からいなくなった。",
     sunsetMemory: "夕日を見て、その色を記憶に残した。",
     sunsetCloudy: "今日は天気が悪くて夕日が見れない。",
     restMessage: (duration) => `休んで、${duration}ぶん時間が進んだ。`,
@@ -1164,6 +1204,10 @@ const continuousGlobalRenderViewModes = new Set([
   "elevation",
   "height"
 ]);
+const ecosystemDiagnosticViewModes = new Set([
+  "carbonBudget",
+  "waterBudget"
+]);
 let viewMode = viewModes.has(window.localStorage.getItem(VIEW_SETTINGS_KEY))
   ? window.localStorage.getItem(VIEW_SETTINGS_KEY)
   : "landUse";
@@ -1376,6 +1420,9 @@ const wellRimGeometry = new THREE.TorusGeometry(1, 0.18, 8, 24);
 const princeHouseBodyGeometry = new THREE.BoxGeometry(1, 1, 1);
 const princeHouseRoofGeometry = new THREE.ConeGeometry(1, 1, 4);
 const princeHouseChimneyGeometry = new THREE.CylinderGeometry(1, 1, 1, 6);
+const sheepBodyGeometry = new THREE.SphereGeometry(1, 14, 9);
+const sheepHeadGeometry = new THREE.SphereGeometry(1, 10, 7);
+const sheepLegGeometry = new THREE.CylinderGeometry(1, 0.85, 1, 6);
 const roseStemMaterial = new THREE.MeshStandardMaterial({ color: 0x3f7a42, roughness: 0.66, metalness: 0.02 });
 const roseBloomMaterial = new THREE.MeshStandardMaterial({
   color: 0xd91e5b,
@@ -1464,6 +1511,16 @@ const princeHouseChimneyMaterial = new THREE.MeshStandardMaterial({
   color: 0x6e685f,
   roughness: 0.84,
   metalness: 0.03
+});
+const sheepWoolMaterial = new THREE.MeshStandardMaterial({
+  color: 0xf1eadf,
+  roughness: 0.88,
+  metalness: 0.01
+});
+const sheepFaceMaterial = new THREE.MeshStandardMaterial({
+  color: 0x3c342b,
+  roughness: 0.82,
+  metalness: 0.01
 });
 const cloudPatchMaterial = new THREE.MeshBasicMaterial({
   color: 0xf0f4ee,
@@ -1797,6 +1854,7 @@ releaseWaterButton.addEventListener("click", releaseWaterHere);
 pullButton.addEventListener("click", pullHere);
 burnButton.addEventListener("click", burnHere);
 cleanButton.addEventListener("click", cleanHere);
+sheepButton.addEventListener("click", releaseSheepHere);
 observeButton.addEventListener("click", observeHere);
 sunsetButton.addEventListener("click", watchSunset);
 restButton.addEventListener("click", restToday);
@@ -2026,6 +2084,7 @@ function applyLanguage() {
   pullButton.textContent = text.pull;
   burnButton.textContent = text.burn;
   cleanButton.textContent = text.clean;
+  sheepButton.textContent = text.sheep;
   observeButton.textContent = text.observe;
   sunsetButton.textContent = text.sunset;
   restButton.textContent = text.rest;
@@ -3129,6 +3188,10 @@ function createAsteroidState(planetPreset = currentPlanetPreset) {
     roseCell,
     crashCell,
     wellCell,
+    sheep: [],
+    sheepCounter: 0,
+    sheepEatenCarbon: 0,
+    sheepReturnedNutrient: 0,
     volcanoCells,
     activeVolcanoCells,
     volcanoMask,
@@ -4995,6 +5058,7 @@ function rebuildMarkers() {
 
     if (state.planetPreset === "earth") {
       addEarthLandmarkMarkers();
+      addSheepMarkers();
     } else {
       addPrinceHouseMarker();
     }
@@ -5068,13 +5132,7 @@ function shouldShowLocalObjectMarkers() {
 }
 
 function objectMarkerLimit() {
-  if (topology.nside < 64) {
-    return Infinity;
-  }
-  if (topology.nside >= 128) {
-    return state.planetPreset === "earth" ? MAX_HIGH_RES_EARTH_OBJECT_MARKERS : MAX_HIGH_RES_ASTEROID_OBJECT_MARKERS;
-  }
-  return MAX_MID_RES_OBJECT_MARKERS;
+  return Infinity;
 }
 
 function objectMarkerScore(cellId) {
@@ -5445,6 +5503,67 @@ function addWellMarker(cell) {
   dark.quaternion.setFromUnitVectors(unitY, normal);
   dark.scale.set(size * 0.125, size * 0.012, size * 0.125);
   markerGroup.add(dark);
+}
+
+function addSheepMarkers() {
+  if (state.planetPreset !== "earth" || !Array.isArray(state.sheep)) {
+    return;
+  }
+
+  for (const sheep of state.sheep) {
+    addSheepMarker(sheep);
+  }
+}
+
+function addSheepMarker(sheep) {
+  const cell = topology.cells[sheep.cellId];
+  if (!cell) {
+    return;
+  }
+
+  const normal = new THREE.Vector3(sheep.x, sheep.y, sheep.z);
+  if (normal.lengthSq() <= 0) {
+    normal.copy(vectorForCell(cell));
+  } else {
+    normal.normalize();
+  }
+
+  const size = THREE.MathUtils.clamp(tileSize(cell) * 1.55, 0.035, 0.075);
+  const { tangentA, tangentB } = tangentFrame(normal);
+  const headingAngle = (sheep.heading ?? seededNoise(sheep.id ?? cell.id, 733) * Math.PI * 2);
+  const forward = tangentA.clone().multiplyScalar(Math.cos(headingAngle)).addScaledVector(tangentB, Math.sin(headingAngle)).normalize();
+  const side = new THREE.Vector3().crossVectors(forward, normal).normalize();
+  const quat = tangentBasisQuaternion(side, forward, normal);
+  const base = normal.clone().multiplyScalar(1.082);
+
+  const body = new THREE.Mesh(sheepBodyGeometry, sheepWoolMaterial);
+  body.userData.pickCellId = cell.id;
+  body.position.copy(base).addScaledVector(normal, size * 0.22);
+  body.quaternion.copy(quat);
+  body.scale.set(size * 0.34, size * 0.22, size * 0.24);
+  markerGroup.add(body);
+
+  const head = new THREE.Mesh(sheepHeadGeometry, sheepFaceMaterial);
+  head.userData.pickCellId = cell.id;
+  head.position.copy(base)
+    .addScaledVector(normal, size * 0.24)
+    .addScaledVector(forward, size * 0.28);
+  head.scale.set(size * 0.12, size * 0.1, size * 0.12);
+  markerGroup.add(head);
+
+  for (const forwardSign of [-1, 1]) {
+    for (const sideSign of [-1, 1]) {
+      const leg = new THREE.Mesh(sheepLegGeometry, sheepFaceMaterial);
+      leg.userData.pickCellId = cell.id;
+      leg.position.copy(base)
+        .addScaledVector(forward, forwardSign * size * 0.12)
+        .addScaledVector(side, sideSign * size * 0.12)
+        .addScaledVector(normal, size * 0.04);
+      leg.quaternion.setFromUnitVectors(unitY, normal);
+      leg.scale.set(size * 0.025, size * 0.16, size * 0.025);
+      markerGroup.add(leg);
+    }
+  }
 }
 
 function addBaobabMarker(cell, normal) {
@@ -5883,6 +6002,7 @@ function rebuildNetOverlayLists() {
       renderCellContainsSimulationCell(renderCellId, state.roseCell) ||
       renderCellContainsSimulationCell(renderCellId, state.crashCell) ||
       renderCellContainsSimulationCell(renderCellId, state.wellCell) ||
+      state.sheep?.some((sheep) => renderCellContainsSimulationCell(renderCellId, sheep.cellId)) ||
       renderCellMax(renderCellId, state.baobab) > 0.08
     ) {
       netMarkerCellIds.push(renderCellId);
@@ -5954,12 +6074,18 @@ function drawNetCellMarker(renderCellId) {
   const isBaobab = renderCellMax(renderCellId, state.baobab) > 0.08;
   const isCrash = renderCellContainsSimulationCell(renderCellId, state.crashCell);
   const isWell = renderCellContainsSimulationCell(renderCellId, state.wellCell);
-  if (!isRose && !isCrash && !isWell && !isBaobab) {
+  const isSheep = state.planetPreset === "earth" &&
+    state.sheep?.some((sheep) => renderCellContainsSimulationCell(renderCellId, sheep.cellId));
+  if (!isRose && !isCrash && !isWell && !isBaobab && !isSheep) {
     return;
   }
 
   netContext.beginPath();
-  if (isCrash) {
+  if (isSheep) {
+    netContext.ellipse(x, y, 0.21, 0.13, 0, 0, Math.PI * 2);
+    netContext.fillStyle = "#f1eadf";
+    netContext.strokeStyle = "rgba(25, 22, 18, 0.85)";
+  } else if (isCrash) {
     netContext.rect(x - 0.2, y - 0.08, 0.4, 0.16);
     netContext.fillStyle = "#d3d0bf";
     netContext.strokeStyle = "rgba(20, 20, 18, 0.85)";
@@ -5970,7 +6096,9 @@ function drawNetCellMarker(renderCellId) {
   } else {
     netContext.arc(x, y, 0.18, 0, Math.PI * 2);
   }
-  if (isRose) {
+  if (isSheep) {
+    // Styles are set when the sheep shape is created above.
+  } else if (isRose) {
     netContext.fillStyle = "#f05f8f";
     netContext.strokeStyle = "rgba(8, 10, 10, 0.7)";
   } else if (isCrash || isWell) {
@@ -6618,7 +6746,7 @@ function hydrologyMovementMaxMm() {
     const percolation12 = state.hydrologyPercolation12Mm;
     const recharge = state.hydrologyRechargeMm;
     if (!horizontal) {
-      return 18;
+      return 1;
     }
     for (let index = 0; index < horizontal.length; index += 1) {
       const movement =
@@ -6631,7 +6759,7 @@ function hydrologyMovementMaxMm() {
         max = Math.max(max, movement);
       }
     }
-    return Math.max(18, max);
+    return Math.max(0.25, max);
   });
 }
 
@@ -6953,9 +7081,11 @@ function updateHud() {
   nsideSelect.value = String(topology.nside);
   viewSelect.value = viewMode;
 
-  for (const button of [waterButton, releaseWaterButton, pullButton, burnButton, cleanButton, observeButton, sunsetButton, restButton]) {
+  sheepButton.hidden = currentPlanetPreset !== "earth";
+  for (const button of [waterButton, releaseWaterButton, pullButton, burnButton, cleanButton, sheepButton, observeButton, sunsetButton, restButton]) {
     button.disabled = state.gameOver;
   }
+  sheepButton.disabled = state.gameOver || currentPlanetPreset !== "earth";
   endDayButton.disabled = state.gameOver;
 }
 
@@ -7171,6 +7301,10 @@ function syncCurrentViewDetailIfNeeded() {
   if (viewMode !== "landUse") {
     syncVegetationToGame(true);
   }
+}
+
+function currentViewNeedsEcosystemDiagnostics() {
+  return ecosystemDiagnosticViewModes.has(viewMode);
 }
 
 function ecosystemSubstepsForPeriod(durationDays) {
@@ -7571,6 +7705,87 @@ function refreshPlantCarbonAggregates(cellId) {
   if (modelState.seedCarbonC) {
     modelState.seedCarbonC[cellId] = seedCarbon;
   }
+}
+
+function recomputeCarbonResidualForCell(cellId) {
+  const modelState = vegetationModelState();
+  if (!modelState?.carbonResidualC) {
+    return;
+  }
+  modelState.carbonResidualC[cellId] =
+    (modelState.carbonStorageChangeC?.[cellId] ?? 0) -
+    ((modelState.carbonInputC?.[cellId] ?? 0) +
+      (modelState.carbonTransportC?.[cellId] ?? 0) -
+      (modelState.carbonRespirationC?.[cellId] ?? 0) -
+      (modelState.carbonDisturbanceC?.[cellId] ?? 0));
+}
+
+function recordGrazingCarbon(sourceCellId, targetCellId, removedCarbon) {
+  const modelState = vegetationModelState();
+  const removed = Math.max(0, removedCarbon);
+  if (!modelState || removed <= 0) {
+    return { returnedCarbon: 0, returnedNutrient: 0 };
+  }
+
+  const returnedCarbon = removed * SHEEP_DUNG_CARBON_RETURN_FRACTION;
+  const respiredCarbon = removed * SHEEP_RESPIRATION_CARBON_FRACTION;
+  const bodyCarbon = removed * SHEEP_BODY_CARBON_FRACTION;
+  const residualExportCarbon = removed * Math.max(
+    0,
+    1 - SHEEP_DUNG_CARBON_RETURN_FRACTION - SHEEP_RESPIRATION_CARBON_FRACTION - SHEEP_BODY_CARBON_FRACTION
+  );
+  const exportedCarbon = respiredCarbon + bodyCarbon + residualExportCarbon;
+  const returnedNutrient = removed * SHEEP_DUNG_NUTRIENT_RETURN_FRACTION;
+
+  if (modelState.disturbanceCarbonExportC) {
+    modelState.disturbanceCarbonExportC[sourceCellId] = (modelState.disturbanceCarbonExportC[sourceCellId] ?? 0) + exportedCarbon;
+  }
+  if (modelState.carbonDisturbanceC) {
+    modelState.carbonDisturbanceC[sourceCellId] = (modelState.carbonDisturbanceC[sourceCellId] ?? 0) + exportedCarbon;
+  }
+  if (modelState.carbonStorageChangeC) {
+    modelState.carbonStorageChangeC[sourceCellId] = (modelState.carbonStorageChangeC[sourceCellId] ?? 0) - removed;
+  }
+
+  if (returnedCarbon > 0) {
+    if (modelState.soilCarbonActive) {
+      modelState.soilCarbonActive[targetCellId] = (modelState.soilCarbonActive[targetCellId] ?? 0) + returnedCarbon * 0.68;
+    }
+    if (modelState.litterCarbon) {
+      modelState.litterCarbon[targetCellId] = (modelState.litterCarbon[targetCellId] ?? 0) + returnedCarbon;
+    }
+    if (modelState.litterFastCarbon) {
+      modelState.litterFastCarbon[targetCellId] = (modelState.litterFastCarbon[targetCellId] ?? 0) + returnedCarbon * 0.78;
+    }
+    if (modelState.litterSlowCarbon) {
+      modelState.litterSlowCarbon[targetCellId] = (modelState.litterSlowCarbon[targetCellId] ?? 0) + returnedCarbon * 0.22;
+    }
+    if (modelState.litterInputCarbon) {
+      modelState.litterInputCarbon[targetCellId] = (modelState.litterInputCarbon[targetCellId] ?? 0) + returnedCarbon;
+    }
+    if (modelState.carbonInputC) {
+      modelState.carbonInputC[targetCellId] = (modelState.carbonInputC[targetCellId] ?? 0) + returnedCarbon;
+    }
+    if (modelState.carbonStorageChangeC) {
+      modelState.carbonStorageChangeC[targetCellId] = (modelState.carbonStorageChangeC[targetCellId] ?? 0) + returnedCarbon;
+    }
+  }
+
+  if (returnedNutrient > 0 && modelState.soilMineralN) {
+    modelState.soilMineralN[targetCellId] = clamp01((modelState.soilMineralN[targetCellId] ?? 0) + returnedNutrient);
+    state.soilNutrient[targetCellId] = clamp01((state.soilNutrient[targetCellId] ?? 0) + returnedNutrient);
+  }
+  if (modelState.soilCarbonActive && modelState.soilCarbonStable) {
+    state.soilOrganicCarbon[targetCellId] = clamp01(
+      ((modelState.soilCarbonActive[targetCellId] ?? 0) + (modelState.soilCarbonStable[targetCellId] ?? 0)) / 1.4
+    );
+  }
+
+  recomputeCarbonResidualForCell(sourceCellId);
+  if (targetCellId !== sourceCellId) {
+    recomputeCarbonResidualForCell(targetCellId);
+  }
+  return { returnedCarbon, returnedNutrient };
 }
 
 function applyFreezePlantDamageForCell(cellId, dtDays) {
@@ -7974,6 +8189,478 @@ function releaseWaterMessageForCell(cellId) {
   }
 
   return text.released;
+}
+
+function releaseSheepHere() {
+  spendAction(() => {
+    const cellId = selectedCellId();
+    if (state.planetPreset !== "earth") {
+      return labels().sheepAsteroidUnavailable;
+    }
+    if (!isSheepLandCell(cellId)) {
+      return labels().sheepOcean;
+    }
+
+    const sheep = createSheepParticle(cellId);
+    state.sheep.push(sheep);
+    netNeedsFullUpdate = true;
+    return {
+      message: labels().sheepReleased,
+      messageAfter: () => sheep.eatenCarbon > 0 ? labels().sheepGrazed : labels().sheepNoSprouts
+    };
+  }, "sheep");
+}
+
+function createSheepParticle(cellId) {
+  const cell = topology.cells[cellId] ?? topology.cells[state.crashCell] ?? topology.cells[state.roseCell];
+  const normal = vectorForCell(cell);
+  const id = state.sheepCounter ?? 0;
+  state.sheepCounter = id + 1;
+  return {
+    id,
+    x: normal.x,
+    y: normal.y,
+    z: normal.z,
+    cellId: cell.id,
+    step: 0,
+    ageDays: 0,
+    energy: SHEEP_INITIAL_ENERGY,
+    seed: 1379 + id * 7919 + cell.id * 17,
+    heading: seededNoise(cell.id, 1397 + id) * Math.PI * 2,
+    memory: {},
+    trail: [cell.id],
+    eatenCarbon: 0,
+    returnedNutrient: 0
+  };
+}
+
+function isSheepLandCell(cellId) {
+  if (state.planetPreset !== "earth") {
+    return false;
+  }
+  const cell = topology.cells[cellId];
+  if (!cell) {
+    return false;
+  }
+  return state.terrain[cellId] !== "water" &&
+    state.land[cellId] !== "earthOcean" &&
+    state.land[cellId] !== "earthCoast";
+}
+
+function advanceSheepPeriod(dtDays) {
+  if (state.planetPreset !== "earth" || !Array.isArray(state.sheep) || state.sheep.length === 0 || dtDays <= 0) {
+    return;
+  }
+
+  let changed = false;
+  const survivors = [];
+  let removedCount = 0;
+  for (const sheep of state.sheep) {
+    sheep.ageDays = (sheep.ageDays ?? 0) + dtDays;
+    sheep.energy = Math.max(0, (sheep.energy ?? SHEEP_INITIAL_ENERGY) - SHEEP_MAINTENANCE_COST_PER_DAY * dtDays);
+    decaySheepMemory(sheep, dtDays);
+    const beforeCell = sheep.cellId;
+    moveSheepParticle(sheep, dtDays);
+    const grazed = grazeSheepAtCell(sheep.cellId, SHEEP_GRAZE_WORK_PER_DAY * dtDays, sheep);
+    if (grazed.eatenCarbon > 0 || sheep.cellId !== beforeCell) {
+      changed = true;
+    }
+    if ((sheep.energy ?? 0) > 0) {
+      survivors.push(sheep);
+    } else {
+      removedCount += 1;
+      changed = true;
+    }
+  }
+  if (removedCount > 0) {
+    state.sheep = survivors;
+    addEventLogEntry(labels().sheepGone);
+  }
+  if (changed) {
+    netNeedsFullUpdate = true;
+  }
+}
+
+function moveSheepParticle(sheep, dtDays) {
+  const candidates = sheepMoveCandidateCells(sheep.cellId);
+  if (candidates.length === 0) {
+    return;
+  }
+
+  const currentCellId = sheep.cellId;
+  const acceptedCellId = sampleSheepSoftmaxCandidate(sheep, currentCellId, candidates);
+  const nextPosition = sheepPositionWithinCell(acceptedCellId, sheep, sheep.step);
+  const heading = sheepHeadingForMove(currentCellId, acceptedCellId, sheep);
+  setSheepParticlePosition(sheep, nextPosition, acceptedCellId, heading);
+  sheep.step += 1;
+}
+
+function sheepMoveCandidateCells(cellId) {
+  const candidates = [cellId];
+  for (const neighborId of neighborsOf(cellId)) {
+    if (isSheepLandCell(neighborId)) {
+      candidates.push(neighborId);
+    }
+  }
+  return candidates;
+}
+
+function sampleSheepSoftmaxCandidate(sheep, originCellId, candidates) {
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+
+  const utilities = candidates.map((cellId) => sheepMoveUtility(sheep, originCellId, cellId));
+  const maxUtility = utilities.reduce((maximum, value) => Math.max(maximum, value), -Infinity);
+  const temperature = sheepPolicyTemperature();
+  let totalWeight = 0;
+  const weights = new Float64Array(candidates.length);
+  for (let index = 0; index < candidates.length; index += 1) {
+    const weight = Math.exp((utilities[index] - maxUtility) / temperature);
+    weights[index] = weight;
+    totalWeight += weight;
+  }
+  if (!(totalWeight > 0) || !Number.isFinite(totalWeight)) {
+    const fallbackIndex = Math.floor(seededNoise(sheep.seed + sheep.step, 211) * candidates.length) % candidates.length;
+    return candidates[fallbackIndex];
+  }
+
+  let draw = seededNoise(sheep.seed + sheep.step, 307) * totalWeight;
+  for (let index = 0; index < candidates.length; index += 1) {
+    draw -= weights[index];
+    if (draw <= 0) {
+      return candidates[index];
+    }
+  }
+  return candidates[candidates.length - 1];
+}
+
+function sheepMoveUtility(sheep, originCellId, cellId) {
+  const local = sheepCellUtility(sheep, cellId);
+  const lookahead = SHEEP_LOOKAHEAD_WEIGHT * sheepLookaheadValue(sheep, cellId);
+  const recentPenalty = sheepRecentVisitPenalty(sheep, originCellId, cellId);
+  return local + lookahead - recentPenalty;
+}
+
+function sheepCellUtility(sheep, cellId) {
+  if (!isSheepLandCell(cellId)) {
+    return -100;
+  }
+  const forage = sheepLocalForageValue(cellId);
+  const memory = SHEEP_MEMORY_WEIGHT * sheepMemoryValue(sheep, cellId);
+  const firePenalty = (state.burning?.[cellId] ?? 0) * SHEEP_FIRE_AVOIDANCE;
+  const wetPenalty =
+    Math.max(0, (state.surfaceWater?.[cellId] ?? 0) - 0.08) * SHEEP_WET_AVOIDANCE +
+    Math.max(0, (state.topSoilWater?.[cellId] ?? 0) - 0.72) * SHEEP_WET_AVOIDANCE;
+  return forage + memory - firePenalty - wetPenalty;
+}
+
+function sheepLocalForageValue(cellId) {
+  return SHEEP_BAOBAB_SPROUT_VALUE * sheepBaobabSproutForage(cellId) +
+    SHEEP_ROSE_SPROUT_VALUE * sheepRoseSproutForage(cellId);
+}
+
+function sheepLookaheadValue(sheep, startCellId) {
+  if (!isSheepLandCell(startCellId)) {
+    return -100;
+  }
+
+  const visited = new Set([startCellId]);
+  let frontier = [startCellId];
+  let best = 0;
+  let bulk = 0;
+  for (let ring = 0; ring <= SHEEP_LOOKAHEAD_RINGS && frontier.length > 0; ring += 1) {
+    const ringWeight = Math.exp(-SHEEP_LOOKAHEAD_DECAY * ring);
+    const nextFrontier = [];
+    for (const cellId of frontier) {
+      const value = Math.max(0, sheepCellUtility(sheep, cellId));
+      const weightedValue = value * ringWeight;
+      best = Math.max(best, weightedValue);
+      bulk += weightedValue;
+      if (ring >= SHEEP_LOOKAHEAD_RINGS) {
+        continue;
+      }
+      for (const neighborId of neighborsOf(cellId)) {
+        if (visited.has(neighborId) || !isSheepLandCell(neighborId)) {
+          continue;
+        }
+        visited.add(neighborId);
+        nextFrontier.push(neighborId);
+      }
+    }
+    frontier = nextFrontier;
+  }
+  return best + bulk * SHEEP_LOOKAHEAD_BULK_WEIGHT;
+}
+
+function sheepRecentVisitPenalty(sheep, originCellId, cellId) {
+  if (cellId === originCellId || !Array.isArray(sheep.trail)) {
+    return 0;
+  }
+  const index = sheep.trail.lastIndexOf(cellId);
+  if (index < 0) {
+    return 0;
+  }
+  const age = sheep.trail.length - 1 - index;
+  return SHEEP_RECENT_VISIT_PENALTY / (1 + age);
+}
+
+function sheepBaobabSproutForage(cellId) {
+  const mass = baobabPlantCarbonAt(cellId);
+  return mass > BAOBAB_HIDDEN_THRESHOLD && mass <= SHEEP_MAX_BAOBAB_SPROUT_MASS ? sheepBaobabEdibleCarbon(cellId) : 0;
+}
+
+function sheepRoseSproutForage(cellId) {
+  const mass = rosePlantCarbonAt(cellId);
+  return mass > 0.01 && mass <= SHEEP_MAX_ROSE_SPROUT_MASS ? sheepRoseEdibleCarbon(cellId) : 0;
+}
+
+function sheepBaobabEdibleCarbon(cellId) {
+  const modelState = vegetationModelState();
+  if (!modelState) {
+    return 0;
+  }
+  const leaf = Math.max(0, modelState.baobabLeaf?.[cellId] ?? 0);
+  const stem = Math.max(0, modelState.baobabStem?.[cellId] ?? 0);
+  const store = Math.max(0, modelState.baobabStore?.[cellId] ?? 0);
+  return leaf + stem * 0.35 + store * 0.08;
+}
+
+function sheepRoseEdibleCarbon(cellId) {
+  const modelState = vegetationModelState();
+  if (!modelState) {
+    return 0;
+  }
+  const leaf = Math.max(0, modelState.roseLeaf?.[cellId] ?? 0);
+  const flower = Math.max(0, modelState.roseFlower?.[cellId] ?? 0);
+  const store = Math.max(0, modelState.roseStore?.[cellId] ?? 0);
+  return leaf + flower * 0.55 + store * 0.06;
+}
+
+function sheepPolicyTemperature() {
+  return Math.max(SHEEP_SOFTMAX_TEMPERATURE_MIN, SHEEP_SOFTMAX_TEMPERATURE);
+}
+
+function sheepMemoryValue(sheep, cellId) {
+  return Math.max(0, Number(sheep.memory?.[cellId] ?? 0));
+}
+
+function updateSheepMemoryFromVisit(sheep, cellId, rewardCarbon) {
+  sheep.memory ??= {};
+  const previous = sheepMemoryValue(sheep, cellId);
+  const target = Math.min(SHEEP_MEMORY_MAX, Math.max(0, rewardCarbon) * SHEEP_MEMORY_REWARD_SCALE);
+  const next = previous + SHEEP_MEMORY_LEARNING_RATE * (target - previous);
+  if (next < 0.001) {
+    delete sheep.memory[cellId];
+  } else {
+    sheep.memory[cellId] = next;
+  }
+}
+
+function decaySheepMemory(sheep, dtDays) {
+  if (!sheep.memory || dtDays <= 0) {
+    return;
+  }
+  const factor = Math.exp(-SHEEP_MEMORY_DECAY_PER_DAY * dtDays);
+  for (const key of Object.keys(sheep.memory)) {
+    const next = Number(sheep.memory[key]) * factor;
+    if (next < 0.001) {
+      delete sheep.memory[key];
+    } else {
+      sheep.memory[key] = next;
+    }
+  }
+}
+
+function sheepPositionWithinCell(cellId, sheep, salt) {
+  const cell = topology.cells[cellId];
+  if (!cell) {
+    return new THREE.Vector3(sheep.x, sheep.y, sheep.z).normalize();
+  }
+  const normal = vectorForCell(cell);
+  const spacing = sheepCellAngularSpacing(cellId);
+  const jitterAngle = spacing * 0.16 * Math.sqrt(seededNoise(cellId + sheep.id * 43, salt + 419));
+  const jitterPhase = seededNoise(cellId + sheep.id * 47, salt + 421) * Math.PI * 2;
+  const { tangentA, tangentB } = tangentFrame(normal);
+  const direction = tangentA.multiplyScalar(Math.cos(jitterPhase)).addScaledVector(tangentB, Math.sin(jitterPhase)).normalize();
+  const point = normal.multiplyScalar(Math.cos(jitterAngle)).addScaledVector(direction, Math.sin(jitterAngle)).normalize();
+  const actualCellId = cellIdForSimulationSpherePoint(point);
+  if (actualCellId === cellId) {
+    return point;
+  }
+  return vectorForCell(cell);
+}
+
+function sheepHeadingForMove(fromCellId, toCellId, sheep) {
+  if (fromCellId === toCellId) {
+    return sheep.heading ?? seededNoise(toCellId, 431 + sheep.id) * Math.PI * 2;
+  }
+  const from = topology.cells[fromCellId];
+  const to = topology.cells[toCellId];
+  if (!from || !to) {
+    return sheep.heading ?? 0;
+  }
+  const normal = vectorForCell(to);
+  const fromVector = vectorForCell(from);
+  const diff = normal.clone().sub(fromVector);
+  const travel = diff.addScaledVector(normal, -normal.dot(diff));
+  if (travel.lengthSq() <= 1e-8) {
+    return sheep.heading ?? 0;
+  }
+  travel.normalize();
+  const { tangentA, tangentB } = tangentFrame(normal);
+  return Math.atan2(travel.dot(tangentB), travel.dot(tangentA));
+}
+
+function setSheepParticlePosition(sheep, position, cellId, heading) {
+  sheep.x = position.x;
+  sheep.y = position.y;
+  sheep.z = position.z;
+  sheep.cellId = cellId;
+  sheep.heading = heading;
+  sheep.trail ??= [];
+  sheep.trail.push(cellId);
+  if (sheep.trail.length > SHEEP_TRAIL_LENGTH) {
+    sheep.trail.splice(0, sheep.trail.length - SHEEP_TRAIL_LENGTH);
+  }
+}
+
+function sheepCellAngularSpacing(cellId) {
+  const cell = topology.cells[cellId];
+  if (!cell) {
+    return Math.sqrt((4 * Math.PI) / topology.cells.length);
+  }
+  let nearest = Infinity;
+  for (const neighborId of neighborsOf(cellId)) {
+    const neighbor = topology.cells[neighborId];
+    if (!neighbor) {
+      continue;
+    }
+    nearest = Math.min(nearest, Math.acos(THREE.MathUtils.clamp(cellNormalDot(cell, neighbor), -1, 1)));
+  }
+  return Number.isFinite(nearest) ? nearest : Math.sqrt((4 * Math.PI) / topology.cells.length);
+}
+
+function cellIdForSimulationSpherePoint(point) {
+  const length = point.length();
+  if (length <= 0) {
+    return null;
+  }
+  const height = THREE.MathUtils.clamp(point.z / length, -1, 1);
+  const phi = Math.atan2(point.y, point.x);
+  const ring = ringForHeightInTopology(height, topology);
+  return topology.cellAtPhi(ring, phi);
+}
+
+function ringForHeightInTopology(height, sourceTopology) {
+  let bestRing = 1;
+  let bestDistance = Infinity;
+  for (let ring = 1; ring <= sourceTopology.maxRing; ring += 1) {
+    const firstCellId = sourceTopology.rings.get(ring)?.[0];
+    if (firstCellId === undefined) {
+      continue;
+    }
+    const distance = Math.abs((sourceTopology.cells[firstCellId]?.height ?? 0) - height);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestRing = ring;
+    }
+  }
+  return bestRing;
+}
+
+function grazeSheepAtCell(cellId, work, sheep) {
+  const modelState = vegetationModelState();
+  if (!modelState || !isSheepLandCell(cellId) || work <= 0) {
+    return { eatenCarbon: 0, returnedNutrient: 0 };
+  }
+
+  let remainingWork = work;
+  let eatenCarbon = 0;
+  let returnedNutrient = 0;
+
+  const baobabMass = baobabPlantCarbonAt(cellId);
+  if (baobabMass > BAOBAB_HIDDEN_THRESHOLD && baobabMass <= SHEEP_MAX_BAOBAB_SPROUT_MASS && remainingWork > 0) {
+    const forage = sheepBaobabEdibleCarbon(cellId);
+    const pressure = Math.min(remainingWork, forage);
+    const removed = grazeBaobabSproutCarbon(cellId, pressure);
+    if (removed > 0) {
+      const targetId = sheepDungTargetCell(cellId, sheep, 301);
+      const returned = recordGrazingCarbon(cellId, targetId, removed);
+      eatenCarbon += removed;
+      returnedNutrient += returned.returnedNutrient;
+      remainingWork = Math.max(0, remainingWork - pressure);
+    }
+  }
+
+  const roseMass = rosePlantCarbonAt(cellId);
+  if (roseMass > 0.01 && roseMass <= SHEEP_MAX_ROSE_SPROUT_MASS && remainingWork > 0) {
+    const forage = sheepRoseEdibleCarbon(cellId);
+    const pressure = Math.min(remainingWork, forage);
+    const removed = grazeRoseSproutCarbon(cellId, pressure);
+    if (removed > 0) {
+      const targetId = sheepDungTargetCell(cellId, sheep, 503);
+      const returned = recordGrazingCarbon(cellId, targetId, removed);
+      eatenCarbon += removed;
+      returnedNutrient += returned.returnedNutrient;
+      remainingWork = Math.max(0, remainingWork - pressure);
+    }
+  }
+
+  updateSheepMemoryFromVisit(sheep, cellId, eatenCarbon);
+
+  if (eatenCarbon > 0) {
+    sheep.energy = Math.min(
+      SHEEP_MAX_ENERGY,
+      (sheep.energy ?? SHEEP_INITIAL_ENERGY) + eatenCarbon * SHEEP_ENERGY_GAIN_PER_CARBON
+    );
+    sheep.eatenCarbon += eatenCarbon;
+    sheep.returnedNutrient += returnedNutrient;
+    state.sheepEatenCarbon = (state.sheepEatenCarbon ?? 0) + eatenCarbon;
+    state.sheepReturnedNutrient = (state.sheepReturnedNutrient ?? 0) + returnedNutrient;
+  }
+  return { eatenCarbon, returnedNutrient };
+}
+
+function sheepDungTargetCell(cellId, sheep, salt) {
+  const candidates = [cellId, ...neighborsOf(cellId).filter((neighborId) => isSheepLandCell(neighborId))];
+  if (candidates.length <= 1) {
+    return cellId;
+  }
+  const index = Math.floor(seededNoise(sheep.seed + sheep.step, salt) * candidates.length) % candidates.length;
+  return candidates[index];
+}
+
+function grazeBaobabSproutCarbon(cellId, pressure) {
+  const modelState = vegetationModelState();
+  if (!modelState || pressure <= 0) {
+    return 0;
+  }
+  const edibleCarbon = Math.max(1e-6, sheepBaobabEdibleCarbon(cellId));
+  const fraction = clamp01(pressure / edibleCarbon);
+  const before = baobabPlantCarbonAt(cellId);
+  modelState.baobabLeaf[cellId] = Math.max(0, (modelState.baobabLeaf[cellId] ?? 0) * (1 - fraction));
+  modelState.baobabStem[cellId] = Math.max(0, (modelState.baobabStem[cellId] ?? 0) * (1 - fraction * 0.35));
+  modelState.baobabRoot[cellId] = Math.max(0, (modelState.baobabRoot[cellId] ?? 0) * (1 - fraction * 0.08));
+  modelState.baobabStore[cellId] = Math.max(0, (modelState.baobabStore[cellId] ?? 0) * (1 - fraction * 0.08));
+  refreshPlantCarbonAggregates(cellId);
+  return Math.max(0, before - baobabPlantCarbonAt(cellId));
+}
+
+function grazeRoseSproutCarbon(cellId, pressure) {
+  const modelState = vegetationModelState();
+  if (!modelState || pressure <= 0) {
+    return 0;
+  }
+  const edibleCarbon = Math.max(1e-6, sheepRoseEdibleCarbon(cellId));
+  const fraction = clamp01(pressure / edibleCarbon);
+  const before = rosePlantCarbonAt(cellId);
+  modelState.roseLeaf[cellId] = Math.max(0, (modelState.roseLeaf[cellId] ?? 0) * (1 - fraction));
+  modelState.roseFlower[cellId] = Math.max(0, (modelState.roseFlower[cellId] ?? 0) * (1 - fraction * 0.55));
+  modelState.roseRoot[cellId] = Math.max(0, (modelState.roseRoot[cellId] ?? 0) * (1 - fraction * 0.08));
+  modelState.roseStore[cellId] = Math.max(0, (modelState.roseStore[cellId] ?? 0) * (1 - fraction * 0.06));
+  refreshPlantCarbonAggregates(cellId);
+  return Math.max(0, before - rosePlantCarbonAt(cellId));
 }
 
 function pullHere() {
@@ -9565,7 +10252,7 @@ async function advanceEcosystemPeriod(durationDays, management = null) {
   const profileSink = activeAsteroidProfileSink();
   const profileTurnStart = profileSink ? performance.now() : 0;
   let profileSectionStart = profileTurnStart;
-  state.vegetation.setDiagnosticsEnabled(false);
+  state.vegetation.setDiagnosticsEnabled(currentViewNeedsEcosystemDiagnostics());
 
   const ecosystemSubsteps = ecosystemSubstepsForPeriod(durationDays);
   const modelDtDays = durationDays / ecosystemSubsteps;
@@ -9577,9 +10264,15 @@ async function advanceEcosystemPeriod(durationDays, management = null) {
     profileSectionStart = now;
   }
 
-  if (management) {
+  const sheepActive = state.planetPreset === "earth" && Array.isArray(state.sheep) && state.sheep.length > 0;
+  if (management || sheepActive) {
     while (remainingSubsteps > 0 && !state.gameOver) {
-      applyManagementForStep(management, modelDtDays);
+      if (management) {
+        applyManagementForStep(management, modelDtDays);
+      }
+      if (sheepActive) {
+        advanceSheepPeriod(modelDtDays);
+      }
       await runEcosystemSteps(modelDtDays, 1);
       advanceSnowIcePeriod(modelDtDays);
       advanceVolcanicAshPeriod(modelDtDays);
@@ -9966,12 +10659,12 @@ function earthLandKeyForCell(cellId, targetState = state) {
   const baobab = targetState.baobab[cellId];
   const cell = topology.cells[cellId];
 
-  if ((terrain === "rose" && flower > EARTH_ROSE_PULL_THRESHOLD) || flower > 0.12) {
-    return "earthRoseGarden";
-  }
-
   if (baobab > 0.18) {
     return "earthBaobabGrove";
+  }
+
+  if ((terrain === "rose" && flower > EARTH_ROSE_PULL_THRESHOLD) || flower > 0.12) {
+    return "earthRoseGarden";
   }
 
   if (terrain === "water") {

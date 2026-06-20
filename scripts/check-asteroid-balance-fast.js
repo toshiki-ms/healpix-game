@@ -61,6 +61,25 @@ assert.ok(
   `nside=${ACTION_SCALE_CHECK_NSIDE} actionScale=${ACTION_SCALE_CHECK} water should not collapse visible rose (${actionScaledBefore} -> ${actionScaledAfter})`
 );
 
+const abandonedAsteroid = createBalanceModel(ACTION_SCALE_CHECK_NSIDE);
+const abandonedRoseCell = abandonedAsteroid.roseCellForCheck;
+const abandonedBefore = visibleRose(abandonedAsteroid, abandonedRoseCell);
+advanceBalanceModel(abandonedAsteroid, CHECK_DAYS, { sunlight: 0.7 });
+const abandonedAfter = visibleRose(abandonedAsteroid, abandonedRoseCell);
+assert.ok(
+  abandonedAfter < abandonedBefore * 0.98,
+  `unwatered asteroid rose should visibly decline under default dry conditions (${abandonedBefore} -> ${abandonedAfter})`
+);
+
+const baobabThreat = createBaobabThreatModel(ACTION_SCALE_CHECK_NSIDE);
+const baobabThreatBefore = totalBaobabMass(baobabThreat);
+advanceBalanceModel(baobabThreat, CHECK_DAYS, { sunlight: 0.72 });
+const baobabThreatAfter = totalBaobabMass(baobabThreat);
+assert.ok(
+  baobabThreatAfter > baobabThreatBefore * 1.05,
+  `default asteroid baobab should persist and grow as a management threat (${baobabThreatBefore} -> ${baobabThreatAfter})`
+);
+
 const seeded = createBalanceModel(SEED_CHECK_NSIDE, {
   annualPrecipMm: 720,
   dryDays: 85,
@@ -99,6 +118,36 @@ assert.ok(
   `rose seed dispersal kernel should allow off-source arrival at nside=${SEED_CHECK_NSIDE}`
 );
 
+const favorableSpread = createBalanceModel(SEED_CHECK_NSIDE, {
+  annualPrecipMm: 720,
+  dryDays: 85,
+  rainPatchiness: 0.32,
+  rainScale: 32,
+  asteroidMeanTempC: 21,
+  asteroidDiurnalRangeC: 6,
+  asteroidLatitudeTempRangeC: 1,
+  evaporation: 0.68,
+  rootDepth: 6,
+  shade: 0.55,
+  roseGrowth: 1.35,
+  baobabGrowth: 1,
+  storage: 1.35,
+  atmosphericCo2Ppm: 420
+});
+setProductiveWetLoam(favorableSpread);
+setRoseFertileNeighborhood(favorableSpread);
+const favorableRoseCellsBefore = visibleRoseCellCount(favorableSpread);
+advanceBalanceModel(favorableSpread, CHECK_DAYS, {
+  sunlight: 0.85,
+  waterCell: favorableSpread.roseCellForCheck,
+  waterRateMDay: WATERING_RATE_M_DAY
+});
+const favorableRoseCellsAfter = visibleRoseCellCount(favorableSpread);
+assert.ok(
+  favorableRoseCellsAfter > favorableRoseCellsBefore,
+  `favorable asteroid rose should be able to establish nearby cells by seed (${favorableRoseCellsBefore} -> ${favorableRoseCellsAfter})`
+);
+
 resetLoadedAsteroidSimulationCore();
 console.log("fast asteroid balance checks passed");
 
@@ -116,7 +165,7 @@ function createBalanceModel(nside, paramOverrides = {}) {
   const climateDiurnalRangeC = new Float32Array(size);
   const rainClimatology = new Float32Array(size).fill(1);
   for (const cell of topology.cells) {
-    terrainCode[cell.id] = cell.id === roseCell ? 5 : 0;
+    terrainCode[cell.id] = cell.id === roseCell ? 7 : 0;
     cellHeight[cell.id] = cell.height;
     cellPhi[cell.id] = cell.phi;
     climateMeanTempC[cell.id] = 18;
@@ -186,6 +235,17 @@ function setProductiveWetLoam(model, soilWater = 0.08, groundwater = 0.08) {
   fillSoilLayer(model, 3, groundwater);
 }
 
+function setRoseFertileNeighborhood(model, value = 1.75) {
+  const roseCell = model.roseCellForCheck;
+  model.state.roseFertility[roseCell] = value;
+  for (const direction of model.topology.directions) {
+    const neighbor = model.topology.neighbor(roseCell, direction);
+    if (Number.isInteger(neighbor) && neighbor >= 0) {
+      model.state.roseFertility[neighbor] = value;
+    }
+  }
+}
+
 function fillSoilLayer(model, layer, value) {
   if (layer === 3) {
     model.state.groundwaterStorage.fill(value);
@@ -199,6 +259,23 @@ function fillSoilLayer(model, layer, value) {
   }
 }
 
+function advanceBalanceModel(model, days, options = {}) {
+  const steps = Math.ceil(days / MODEL_DT_DAYS);
+  const sunlight = options.sunlight ?? 0.7;
+  for (let stepIndex = 0; stepIndex < steps; stepIndex += 1) {
+    model.state.sunlight.fill(sunlight);
+    if (Number.isInteger(options.waterCell) && options.waterRateMDay > 0) {
+      model.applyWater(
+        [options.waterCell],
+        options.waterRateMDay * MODEL_DT_DAYS,
+        options.waterRateMDay,
+        MODEL_DT_DAYS
+      );
+    }
+    model.step();
+  }
+}
+
 function visibleRose(model, cellId) {
   const flower = new Float32Array(model.size);
   const baobab = new Float32Array(model.size);
@@ -207,6 +284,74 @@ function visibleRose(model, cellId) {
   const roseHeight = new Float32Array(model.size);
   model.syncToGame({ flower, baobab, moisture, soil, roseHeight }, { detail: false });
   return flower[cellId];
+}
+
+function visibleRoseCellCount(model) {
+  const flower = new Float32Array(model.size);
+  const baobab = new Float32Array(model.size);
+  const moisture = new Float32Array(model.size);
+  const soil = new Float32Array(model.size);
+  const roseHeight = new Float32Array(model.size);
+  model.syncToGame({ flower, baobab, moisture, soil, roseHeight }, { detail: false });
+  let count = 0;
+  for (let i = 0; i < model.size; i += 1) {
+    if (Math.max(flower[i], roseHeight[i]) > 0.08) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+function createBaobabThreatModel(nside) {
+  const model = createBalanceModel(nside, {
+    annualPrecipMm: 70,
+    dryDays: 340,
+    evaporation: 1.25,
+    baobabGrowth: 1
+  });
+  const cellId = findDryBaobabCell(model.topology, model.roseCellForCheck);
+  model.state.baobabRisk[cellId] = 0.88;
+  model.state.baobabLeaf[cellId] = 0.045;
+  model.state.baobabStem[cellId] = 0.075;
+  model.state.baobabRoot[cellId] = 0.09;
+  model.state.baobabStore[cellId] = 0.018;
+  model.state.baobabSeed[cellId] = 0.035;
+  model.state.MB[cellId] =
+    model.state.baobabLeaf[cellId] +
+    model.state.baobabStem[cellId] +
+    model.state.baobabRoot[cellId];
+  return model;
+}
+
+function findDryBaobabCell(topology, roseCell) {
+  let bestId = 0;
+  let bestScore = -Infinity;
+  const rose = topology.cells[roseCell];
+  for (const cell of topology.cells) {
+    if (cell.id === roseCell) {
+      continue;
+    }
+    const separation =
+      rose
+        ? Math.acos(Math.max(-1, Math.min(1,
+            cell.normal[0] * rose.normal[0] + cell.normal[1] * rose.normal[1] + cell.normal[2] * rose.normal[2]
+          )))
+        : 0;
+    const score = separation + Math.abs(cell.height) * 0.25 + ((cell.id * 1103515245 + 12345) >>> 0) * 1e-12;
+    if (score > bestScore) {
+      bestScore = score;
+      bestId = cell.id;
+    }
+  }
+  return bestId;
+}
+
+function totalBaobabMass(model) {
+  let total = 0;
+  for (let i = 0; i < model.size; i += 1) {
+    total += model.state.MB[i] ?? 0;
+  }
+  return total;
 }
 
 function findEquatorialCell(topology) {

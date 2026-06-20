@@ -85,8 +85,7 @@ The original HEALPix software package is a separate project and is not included 
 
 ## Data Sources
 
-- [Natural Earth](https://www.naturalearthdata.com/) 1:110m Admin 0 country polygons for coarse land masks.
-- [NOAA NGDC ETOPO1](https://www.ncei.noaa.gov/products/etopo-global-relief-model) for Earth elevation sampled to a 1 degree grid.
+- [NOAA NGDC ETOPO1](https://www.ncei.noaa.gov/products/etopo-global-relief-model) for Earth elevation sampled to a 1 degree grid and derived land/ocean masks.
 - [WorldClim 2.1](https://www.worldclim.org/data/worldclim21.html) [BIO1, BIO2, and BIO12](https://www.worldclim.org/data/bioclim.html) for Earth annual mean temperature, mean diurnal temperature range, and land precipitation sampled to a 1 degree grid.
 - ERA5 monthly total cloud cover is used as a low-resolution cloud reference for Earth cloud display. Ocean precipitation and cells missing WorldClim data currently use analytic climatology.
 

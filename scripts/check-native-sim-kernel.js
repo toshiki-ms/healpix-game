@@ -34,7 +34,7 @@ execFileSync("gcc", [
 
 await loadAsteroidSimulationCoreFromBytes(readFileSync(wasmPath));
 const model = createDiagnosticModel(8);
-const baobabSeedDiffusionM2Day = 430 * 0.85;
+const baobabSeedDiffusionM2Day = 0;
 const roseSeedDiffusionM2Day = 12.5;
 const constants = __asteroidVegetationDiagnostics.darcyWaterColumnsConstants(
   model,

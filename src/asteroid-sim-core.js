@@ -163,6 +163,7 @@ const ECOSYSTEM_STEP_FIELDS = [
   "DISPERSAL_WEIGHTS_OFFSET",
   "DISPERSAL_WEIGHT_SUMS_OFFSET",
   "SUBSTRATE_OFFSET",
+  "LAND_ACTIVE_OFFSET",
   "BAOBAB_BLOCKED_OFFSET",
   "CELL_HEIGHT_OFFSET",
   "CLIMATE_MEAN_TEMP_C_OFFSET",
@@ -363,6 +364,7 @@ const ECOSYSTEM_STEP_INTEGER_FIELDS = new Set([
 ]);
 const ECOSYSTEM_STEP_STATE_OFFSET_FIELDS = Object.freeze({
   SUBSTRATE_OFFSET: "substrate",
+  LAND_ACTIVE_OFFSET: "landActive",
   BAOBAB_BLOCKED_OFFSET: "baobabBlocked",
   CELL_HEIGHT_OFFSET: "cellHeight",
   CLIMATE_MEAN_TEMP_C_OFFSET: "climateMeanTempC",
@@ -2821,7 +2823,9 @@ function createSimulationCore(exports) {
       addProfileTime("ecosystemWasmPrepare", performance.now() - profileStart);
     }
     const finalize = () => {
-      const updatedState = new Uint32Array(exports.memory.buffer, roseBinding.rngStateOffset, 1)[0];
+      const paramsU32 = new Uint32Array(exports.memory.buffer, stepBinding.paramsOffset, ECOSYSTEM_STEP_FIELDS.length);
+      const rngOutState = new Uint32Array(exports.memory.buffer, roseBinding.rngStateOffset, 1)[0];
+      const updatedState = paramsU32[ECOSYSTEM_STEP_FIELD_INDEX.RNG_STATE] || rngOutState;
       model.rng.setState(updatedState);
       model.lastRainM = new Float32Array(exports.memory.buffer, stepBinding.lastRainOffset, 1)[0];
       model.slowStepPhase = new Uint32Array(exports.memory.buffer, stepBinding.slowStepPhaseOffset, 1)[0];

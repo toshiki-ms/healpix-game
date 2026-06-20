@@ -854,9 +854,10 @@ assert.ok(
 assert.ok(
   Math.abs(
     poolModel.state.aparBaobab[poolCell] / poolModel.state.aparTotal[poolCell] -
-    poolModel.state.laiBaobab[poolCell] / (poolModel.state.laiBaobab[poolCell] + poolModel.state.laiRose[poolCell])
+    (0.58 * poolModel.state.laiBaobab[poolCell]) /
+      (0.58 * poolModel.state.laiBaobab[poolCell] + 0.68 * poolModel.state.laiRose[poolCell])
   ) < 1e-5,
-  "PFT APAR shares should follow the LAI ratio"
+  "PFT APAR shares should follow the optical-depth ratio"
 );
 assert.ok(poolModel.state.et0[poolCell] > 0, "plant physiology should diagnose positive reference ET under sunlight");
 assert.ok(poolModel.state.lueGppBaobab[poolCell] > 0, "lit baobab canopy should produce positive LUE GPP");
@@ -965,7 +966,7 @@ const roseGainAllocationFluxSum =
 assert.ok(
   Math.abs(
     roseGainAllocationFluxSum +
-      Math.min(roseGainModel.state.roseSeedProduction[poolCell], roseGainModel.state.nppRose[poolCell]) -
+      Math.min(roseGainModel.state.roseSeedProduction[poolCell], roseGainModel.state.nppRose[poolCell] * 0.38) -
       roseGainModel.state.nppRose[poolCell]
   ) < 1e-7,
   "rose vegetative allocation plus seed output from current NPP should sum to rose NPP"
@@ -1036,6 +1037,85 @@ roseSeedWasmModel.step();
 assert.ok(
   roseSeedWasmModel.state.roseSeedProduction[poolCell] > 0,
   "integrated C/WASM ecosystem step should compute rose seed production before dispersal"
+);
+
+const baobabSeedWasmModel = createVegetationTestModel(4, null, {
+  annualPrecipMm: 720,
+  evaporation: 0.8,
+  baobabGrowth: 1.2,
+  shade: 0.45,
+  asteroidMeanTempC: 27,
+  asteroidDiurnalRangeC: 8,
+  asteroidLatitudeTempRangeC: 1
+});
+setProductiveWetLoam(baobabSeedWasmModel);
+baobabSeedWasmModel.setDiagnosticsEnabled(false);
+baobabSeedWasmModel.state.sunlight.fill(0.9);
+baobabSeedWasmModel.state.baobabRisk[poolCell] = 0.86;
+baobabSeedWasmModel.state.baobabLeaf[poolCell] = 0.38;
+baobabSeedWasmModel.state.baobabStem[poolCell] = 0.82;
+baobabSeedWasmModel.state.baobabRoot[poolCell] = 0.58;
+baobabSeedWasmModel.state.baobabStore[poolCell] = 0.34;
+baobabSeedWasmModel.state.MB[poolCell] =
+  baobabSeedWasmModel.state.baobabLeaf[poolCell] +
+  baobabSeedWasmModel.state.baobabStem[poolCell] +
+  baobabSeedWasmModel.state.baobabRoot[poolCell];
+baobabSeedWasmModel.step();
+let baobabSeedArrivalTotal = 0;
+for (let i = 0; i < baobabSeedWasmModel.size; i += 1) {
+  baobabSeedArrivalTotal += baobabSeedWasmModel.state.baobabSeedTransport[i];
+}
+assert.ok(
+  baobabSeedArrivalTotal > 0,
+  "integrated C/WASM ecosystem step should distribute baobab seed production into seed arrival flux"
+);
+
+const baobabStochasticSpreadModel = createVegetationTestModel(64, null, {
+  annualPrecipMm: 720,
+  evaporation: 0.5,
+  baobabGrowth: 1.2,
+  shade: 0.45,
+  asteroidMeanTempC: 27,
+  asteroidDiurnalRangeC: 4,
+  asteroidLatitudeTempRangeC: 1
+});
+setProductiveWetLoam(baobabStochasticSpreadModel, 0.02, 0.035);
+baobabStochasticSpreadModel.setDiagnosticsEnabled(false);
+baobabStochasticSpreadModel.state.sunlight.fill(1);
+baobabStochasticSpreadModel.state.baobabRisk.fill(1);
+baobabStochasticSpreadModel.state.baobabSeed.fill(0);
+const baobabStochasticSource = Math.floor(baobabStochasticSpreadModel.size / 3);
+baobabStochasticSpreadModel.state.baobabLeaf[baobabStochasticSource] = 0.38;
+baobabStochasticSpreadModel.state.baobabStem[baobabStochasticSource] = 0.82;
+baobabStochasticSpreadModel.state.baobabRoot[baobabStochasticSource] = 0.58;
+baobabStochasticSpreadModel.state.baobabStore[baobabStochasticSource] = 0;
+baobabStochasticSpreadModel.state.MB[baobabStochasticSource] =
+  baobabStochasticSpreadModel.state.baobabLeaf[baobabStochasticSource] +
+  baobabStochasticSpreadModel.state.baobabStem[baobabStochasticSource] +
+  baobabStochasticSpreadModel.state.baobabRoot[baobabStochasticSource];
+for (let step = 0; step < 6; step += 1) {
+  baobabStochasticSpreadModel.step();
+}
+let offSourceBaobabSeed = 0;
+let offSourceBaobabMass = 0;
+for (let i = 0; i < baobabStochasticSpreadModel.size; i += 1) {
+  if (i === baobabStochasticSource) {
+    continue;
+  }
+  offSourceBaobabSeed += baobabStochasticSpreadModel.state.baobabSeed[i];
+  offSourceBaobabMass += baobabStochasticSpreadModel.state.MB[i];
+}
+assert.ok(
+  baobabStochasticSpreadModel.state.baobabSeed[baobabStochasticSource] > 0,
+  "adult baobab should keep producing seed from positive NPP even after storage carbon is empty"
+);
+assert.ok(
+  offSourceBaobabSeed > 0,
+  "nside=64 baobab seed packets should stochastically leave the parent cell"
+);
+assert.ok(
+  offSourceBaobabMass > 0,
+  "off-source baobab seed bank should establish new baobab biomass under favorable conditions"
 );
 resetLoadedAsteroidSimulationCore();
 await loadSimulationCoreForAction();
