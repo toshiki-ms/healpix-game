@@ -12,6 +12,10 @@
 #define SIM_CELL_KERNEL_BLOCK_SIZE 1024
 #define SIM_PHOTOSYNTHESIS_PICARD_ITERATIONS 2
 #define SIM_ROSE_ARRIVAL_BLOCK_SIZE 4096
+#define SIM_BAOBAB_SEED_NPP_ALLOCATION_FRACTION 0.45f
+#define SIM_BAOBAB_SEED_STORE_FRACTION_PER_DAY 0.32f
+#define SIM_ROSE_SEED_NPP_ALLOCATION_FRACTION 0.38f
+#define SIM_ROSE_SEED_STORE_FRACTION_PER_DAY 0.18f
 #define SIM_ROSE_SEED_PRODUCTION_COEFF 0.03f
 #define SIM_ROSE_SEED_BASE_MORTALITY 0.0035f
 #define SIM_ROSE_SEED_STRESS_MORTALITY 0.026f
@@ -6072,7 +6076,6 @@ SIM_EXPORT void sim_produce_and_distribute_rose_seeds(
   uint32_t rng_state,
   uintptr_t rng_state_out_offset
 ) {
-  (void)model_dt_days;
   const int32_t *SIM_RESTRICT active_ids = (const int32_t *)(uintptr_t)active_ids_offset;
   const int32_t *SIM_RESTRICT dispersal_offsets = (const int32_t *)(uintptr_t)dispersal_offsets_offset;
   const int32_t *SIM_RESTRICT dispersal_targets = (const int32_t *)(uintptr_t)dispersal_targets_offset;
@@ -6189,7 +6192,10 @@ SIM_EXPORT void sim_produce_and_distribute_rose_seeds(
       (0.25f + 0.75f * temp_stress) *
       light_factor *
       soil_factor;
-    const float production = sim_min(potential_cap, carbon_surplus * reproductive_allocation);
+    const float seed_carbon_limit =
+      carbon_surplus * sim_min(SIM_ROSE_SEED_NPP_ALLOCATION_FRACTION, reproductive_allocation) +
+      sim_max(0.0f, rose_store[i] - 0.012f) * SIM_ROSE_SEED_STORE_FRACTION_PER_DAY / sim_max(1.0e-6f, model_dt_days);
+    const float production = sim_min(potential_cap, seed_carbon_limit);
     if (production <= 1.0e-10f) {
       continue;
     }
@@ -6301,7 +6307,8 @@ static inline float sim_baobab_seed_production(float stem_c, float leaf_c, float
 
 static inline float sim_baobab_seed_production_carbon_limit(float positive_npp, float store_c, float dt_days) {
   const float safe_dt_days = sim_max(1.0e-6f, dt_days);
-  return sim_max(0.0f, positive_npp) * 0.45f + sim_max(0.0f, store_c) * 0.32f / safe_dt_days;
+  return sim_max(0.0f, positive_npp) * SIM_BAOBAB_SEED_NPP_ALLOCATION_FRACTION +
+    sim_max(0.0f, store_c) * SIM_BAOBAB_SEED_STORE_FRACTION_PER_DAY / safe_dt_days;
 }
 
 static inline float sim_baobab_germination_rate(
@@ -6494,6 +6501,17 @@ static inline void sim_update_soil_biogeochemistry_cell(
       soil_carbon_stable[i]
     );
   const float leaching = (0.00045f + 0.0032f * wetness * wetness) * leachable_n;
+  const float nutrient_supply =
+    soil_mineral_transport[i] +
+    0.38f * mineralization +
+    organic_nitrogen_release +
+    mineral_weathering +
+    ash_weathering;
+  const float available_nutrient_uptake =
+    sim_max(0.0f, soil_mineral_n[i] - 0.005f) / sim_max(1.0e-6f, model_dt_days) +
+    sim_max(0.0f, nutrient_supply);
+  const float plant_nutrient_uptake_actual =
+    sim_min(sim_max(0.0f, plant_nutrient_uptake), available_nutrient_uptake);
   const float next_litter_fast =
     sim_clamp(litter_fast + model_dt_days * (litter_fast_input - fast_decay), 0.0f, 1.4f);
   const float next_litter_slow =
@@ -6508,12 +6526,8 @@ static inline void sim_update_soil_biogeochemistry_cell(
       soil_mineral_n[i] +
         model_dt_days *
           (
-            soil_mineral_transport[i] +
-            0.38f * mineralization +
-            organic_nitrogen_release +
-            mineral_weathering +
-            ash_weathering -
-            plant_nutrient_uptake -
+            nutrient_supply -
+            plant_nutrient_uptake_actual -
             leaching
           ),
       0.005f,
@@ -6881,9 +6895,14 @@ static void sim_update_plant_carbon_seeds_impl(
       const float deficit = sim_max(0.0f, -carbon_balance_b);
       const float mobilized = sim_min(b_store / model_dt_days, deficit * 0.9f);
       const float unmet_deficit = sim_max(0.0f, deficit - mobilized);
+      const float catabolic_respiration = sim_min(unmet_deficit, b_mass / model_dt_days);
+      const float residual_deficit = sim_max(0.0f, unmet_deficit - catabolic_respiration);
+      const float catabolic_leaf = catabolic_respiration * (b_leaf / b_mass);
+      const float catabolic_stem = catabolic_respiration * (b_stem / b_mass);
+      const float catabolic_root = catabolic_respiration * (b_root / b_mass);
       const float seed_output_b = sim_max(0.0f, baobab_seed_prod);
-      const float seed_from_npp_b = sim_min(positive_npp, seed_output_b);
-      const float seed_from_store_b = sim_max(0.0f, seed_output_b - seed_from_npp_b);
+      const float seed_from_npp_b = sim_min(positive_npp * SIM_BAOBAB_SEED_NPP_ALLOCATION_FRACTION, seed_output_b);
+      const float seed_from_store_b = sim_min(sim_max(0.0f, seed_output_b - seed_from_npp_b), sim_max(0.0f, b_store) / model_dt_days);
       const float vegetative_npp_b = positive_npp - seed_from_npp_b;
       const float store_fraction = sim_storage_allocation_fraction(0.16f, vegetative_npp_b, stress_b, b_store, b_store_cap, 0.38f);
       const float storage_sink = vegetative_npp_b * store_fraction;
@@ -6895,16 +6914,16 @@ static void sim_update_plant_carbon_seeds_impl(
       const float seed_establishment = sim_max(0.0f, seed_b) * 0.26f;
       const float drought = 1.0f - sim_clamp(stress_b, 0.0f, 1.0f);
       const float shade = 1.0f - sim_clamp(light_baobab_stress, 0.0f, 1.0f);
-      const float starvation = unmet_deficit / b_mass;
+      const float starvation = residual_deficit / b_mass;
       const float leaf_loss_rate = 0.0011f * (1.0f + 1.05f * drought + 0.34f * shade) + mortality_b * 0.42f + starvation * 0.18f;
       const float stem_loss_rate = 0.00004f * (1.0f + 0.04f * drought) + mortality_b * 0.06f + starvation * 0.01f;
       const float root_loss_rate = 0.00032f * (1.0f + 0.08f * drought) + mortality_b * 0.1f + starvation * 0.03f;
       const float leaf_loss = leaf_loss_rate * b_leaf;
       const float stem_loss = stem_loss_rate * b_stem;
       const float root_loss = root_loss_rate * b_root;
-      baobab_leaf_next[i] = sim_max(0.0f, b_leaf + model_dt_days * (growth_carbon * alloc_leaf + seed_establishment * 0.18f - leaf_loss));
-      baobab_stem_next[i] = sim_max(0.0f, b_stem + model_dt_days * (growth_carbon * alloc_stem + seed_establishment * 0.22f - stem_loss));
-      baobab_root_next[i] = sim_max(0.0f, b_root + model_dt_days * (growth_carbon * alloc_root + seed_establishment * 0.6f - root_loss));
+      baobab_leaf_next[i] = sim_max(0.0f, b_leaf + model_dt_days * (growth_carbon * alloc_leaf + seed_establishment * 0.18f - leaf_loss - catabolic_leaf));
+      baobab_stem_next[i] = sim_max(0.0f, b_stem + model_dt_days * (growth_carbon * alloc_stem + seed_establishment * 0.22f - stem_loss - catabolic_stem));
+      baobab_root_next[i] = sim_max(0.0f, b_root + model_dt_days * (growth_carbon * alloc_root + seed_establishment * 0.6f - root_loss - catabolic_root));
       baobab_store_next[i] = sim_clamp(b_store + model_dt_days * (storage_sink - mobilized - seed_from_store_b), 0.0f, b_store_cap);
       b_litter_fast = leaf_loss * 0.72f + root_loss * 0.42f;
       b_litter_slow = stem_loss + leaf_loss * 0.28f + root_loss * 0.58f;
@@ -7022,10 +7041,15 @@ static void sim_update_plant_carbon_seeds_impl(
       const float r_deficit = sim_max(0.0f, -carbon_balance_r);
       const float r_mobilized = sim_min(r_store / model_dt_days, r_deficit * 0.9f);
       const float r_unmet_deficit = sim_max(0.0f, r_deficit - r_mobilized);
+      const float r_catabolic_respiration = sim_min(r_unmet_deficit, r_mass / model_dt_days);
+      const float r_residual_deficit = sim_max(0.0f, r_unmet_deficit - r_catabolic_respiration);
+      const float r_catabolic_leaf = r_catabolic_respiration * (r_leaf / r_mass);
+      const float r_catabolic_flower = r_catabolic_respiration * (r_flower / r_mass);
+      const float r_catabolic_root = r_catabolic_respiration * (r_root / r_mass);
       const float r_positive_npp = sim_max(0.0f, carbon_balance_r);
       const float r_seed_output = sim_max(0.0f, rose_seed_prod);
-      const float r_seed_from_npp = sim_min(r_positive_npp, r_seed_output);
-      const float r_seed_from_store = sim_max(0.0f, r_seed_output - r_seed_from_npp);
+      const float r_seed_from_npp = sim_min(r_positive_npp * SIM_ROSE_SEED_NPP_ALLOCATION_FRACTION, r_seed_output);
+      const float r_seed_from_store = sim_min(sim_max(0.0f, r_seed_output - r_seed_from_npp), sim_max(0.0f, r_store) / model_dt_days);
       const float r_vegetative_npp = r_positive_npp - r_seed_from_npp;
       const float r_store_fraction = sim_storage_allocation_fraction(0.16f, r_vegetative_npp, stress_r, r_store, r_store_cap, 0.22f);
       const float r_storage_sink = r_vegetative_npp * r_store_fraction;
@@ -7041,16 +7065,16 @@ static void sim_update_plant_carbon_seeds_impl(
       const float establishment_flower_share = sim_clamp((rose_soil - 0.72f) / 0.74f, 0.0f, 1.0f) * 0.18f * sim_clamp(stress_r, 0.0f, 1.0f);
       const float r_drought = 1.0f - sim_clamp(stress_r, 0.0f, 1.0f);
       const float r_shade = 1.0f - sim_clamp(canopy_light_rose_stress, 0.0f, 1.0f);
-      const float r_starvation = r_unmet_deficit / r_mass;
+      const float r_starvation = r_residual_deficit / r_mass;
       const float r_leaf_loss_rate = (1.0f / 900.0f) * (1.0f + 1.15f * r_drought + 0.4f * r_shade + 0.45f * ash_load) + mortality_r * 0.95f + r_starvation;
       const float r_flower_loss_rate = (1.0f / 420.0f) * (1.0f + 1.5f * r_drought + 0.65f * r_shade + 0.7f * ash_load) + mortality_r * 1.32f + r_starvation * 1.45f;
       const float r_root_loss_rate = (1.0f / 1200.0f) * (1.0f + 0.45f * r_drought) + mortality_r * 0.68f + r_starvation * 0.78f;
       const float r_leaf_loss = r_leaf_loss_rate * r_leaf;
       const float r_flower_loss = r_flower_loss_rate * r_flower;
       const float r_root_loss = r_root_loss_rate * r_root;
-      rose_leaf_next[i] = sim_max(0.0f, r_leaf + model_dt_days * (r_growth_carbon * r_alloc_leaf + r_seed_establishment * (0.4f - establishment_flower_share * 0.45f) - r_leaf_loss));
-      rose_flower_next[i] = sim_max(0.0f, r_flower + model_dt_days * (r_growth_carbon * r_alloc_flower + r_seed_establishment * establishment_flower_share - r_flower_loss));
-      rose_root_next[i] = sim_max(0.0f, r_root + model_dt_days * (r_growth_carbon * r_alloc_root + r_seed_establishment * (0.6f - establishment_flower_share * 0.55f) - r_root_loss));
+      rose_leaf_next[i] = sim_max(0.0f, r_leaf + model_dt_days * (r_growth_carbon * r_alloc_leaf + r_seed_establishment * (0.4f - establishment_flower_share * 0.45f) - r_leaf_loss - r_catabolic_leaf));
+      rose_flower_next[i] = sim_max(0.0f, r_flower + model_dt_days * (r_growth_carbon * r_alloc_flower + r_seed_establishment * establishment_flower_share - r_flower_loss - r_catabolic_flower));
+      rose_root_next[i] = sim_max(0.0f, r_root + model_dt_days * (r_growth_carbon * r_alloc_root + r_seed_establishment * (0.6f - establishment_flower_share * 0.55f) - r_root_loss - r_catabolic_root));
       rose_store_next[i] = sim_clamp(r_store + model_dt_days * (r_storage_sink - r_mobilized - r_seed_from_store), 0.0f, r_store_cap);
       r_litter_fast = r_flower_loss + r_leaf_loss * 0.84f + r_root_loss * 0.38f;
       r_litter_slow = r_leaf_loss * 0.16f + r_root_loss * 0.62f;
@@ -9736,7 +9760,6 @@ static void sim_produce_rose_seeds_range_from_params(
   const float asteroid_latitude_temp_range_c = SPF(ASTEROID_LATITUDE_TEMP_RANGE_C);
   const float shade = SPF(SHADE);
   const float model_dt_days = SPF(MODEL_DT_DAYS);
-  (void)model_dt_days;
   const float *SIM_RESTRICT cell_height = (const float *)(uintptr_t)SPU(CELL_HEIGHT);
   const float *SIM_RESTRICT climate_mean_temp_c = (const float *)(uintptr_t)SPU(CLIMATE_MEAN_TEMP_C);
   const float *SIM_RESTRICT climate_diurnal_range_c = (const float *)(uintptr_t)SPU(CLIMATE_DIURNAL_RANGE_C);
@@ -9842,7 +9865,10 @@ static void sim_produce_rose_seeds_range_from_params(
       (0.25f + 0.75f * temp_stress) *
       light_factor *
       soil_factor;
-    const float production = sim_min(potential_cap, carbon_surplus * reproductive_allocation);
+    const float seed_carbon_limit =
+      carbon_surplus * sim_min(SIM_ROSE_SEED_NPP_ALLOCATION_FRACTION, reproductive_allocation) +
+      sim_max(0.0f, rose_store[i] - 0.012f) * SIM_ROSE_SEED_STORE_FRACTION_PER_DAY / sim_max(1.0e-6f, model_dt_days);
+    const float production = sim_min(potential_cap, seed_carbon_limit);
     if (production > 1.0e-10f) {
       rose_seed_production[i] = production;
     }

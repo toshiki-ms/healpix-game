@@ -173,6 +173,8 @@ const SHEEP_GRAZE_WORK_PER_DAY = 0.11;
 const SHEEP_MAX_BAOBAB_SPROUT_MASS = 0.22;
 const SHEEP_MAX_ROSE_SPROUT_MASS = 0.16;
 const SHEEP_DUNG_CARBON_RETURN_FRACTION = 0.38;
+const SHEEP_RESPIRATION_CARBON_FRACTION = 0.48;
+const SHEEP_BODY_CARBON_FRACTION = 0.08;
 const SHEEP_DUNG_NUTRIENT_RETURN_FRACTION = 0.028;
 const SHEEP_INITIAL_ENERGY = 1.0;
 const SHEEP_MAX_ENERGY = 1.45;
@@ -7726,7 +7728,13 @@ function recordGrazingCarbon(sourceCellId, targetCellId, removedCarbon) {
   }
 
   const returnedCarbon = removed * SHEEP_DUNG_CARBON_RETURN_FRACTION;
-  const exportedCarbon = Math.max(0, removed - returnedCarbon);
+  const respiredCarbon = removed * SHEEP_RESPIRATION_CARBON_FRACTION;
+  const bodyCarbon = removed * SHEEP_BODY_CARBON_FRACTION;
+  const residualExportCarbon = removed * Math.max(
+    0,
+    1 - SHEEP_DUNG_CARBON_RETURN_FRACTION - SHEEP_RESPIRATION_CARBON_FRACTION - SHEEP_BODY_CARBON_FRACTION
+  );
+  const exportedCarbon = respiredCarbon + bodyCarbon + residualExportCarbon;
   const returnedNutrient = removed * SHEEP_DUNG_NUTRIENT_RETURN_FRACTION;
 
   if (modelState.disturbanceCarbonExportC) {
@@ -8398,13 +8406,35 @@ function sheepRecentVisitPenalty(sheep, originCellId, cellId) {
 }
 
 function sheepBaobabSproutForage(cellId) {
-  const mass = baobabDisplayMassAt(cellId);
-  return mass > BAOBAB_HIDDEN_THRESHOLD && mass <= SHEEP_MAX_BAOBAB_SPROUT_MASS ? mass : 0;
+  const mass = baobabPlantCarbonAt(cellId);
+  return mass > BAOBAB_HIDDEN_THRESHOLD && mass <= SHEEP_MAX_BAOBAB_SPROUT_MASS ? sheepBaobabEdibleCarbon(cellId) : 0;
 }
 
 function sheepRoseSproutForage(cellId) {
-  const mass = roseDisplayMassIndex(cellId);
-  return mass > 0.01 && mass <= SHEEP_MAX_ROSE_SPROUT_MASS ? mass : 0;
+  const mass = rosePlantCarbonAt(cellId);
+  return mass > 0.01 && mass <= SHEEP_MAX_ROSE_SPROUT_MASS ? sheepRoseEdibleCarbon(cellId) : 0;
+}
+
+function sheepBaobabEdibleCarbon(cellId) {
+  const modelState = vegetationModelState();
+  if (!modelState) {
+    return 0;
+  }
+  const leaf = Math.max(0, modelState.baobabLeaf?.[cellId] ?? 0);
+  const stem = Math.max(0, modelState.baobabStem?.[cellId] ?? 0);
+  const store = Math.max(0, modelState.baobabStore?.[cellId] ?? 0);
+  return leaf + stem * 0.35 + store * 0.08;
+}
+
+function sheepRoseEdibleCarbon(cellId) {
+  const modelState = vegetationModelState();
+  if (!modelState) {
+    return 0;
+  }
+  const leaf = Math.max(0, modelState.roseLeaf?.[cellId] ?? 0);
+  const flower = Math.max(0, modelState.roseFlower?.[cellId] ?? 0);
+  const store = Math.max(0, modelState.roseStore?.[cellId] ?? 0);
+  return leaf + flower * 0.55 + store * 0.06;
 }
 
 function sheepPolicyTemperature() {
@@ -8549,9 +8579,10 @@ function grazeSheepAtCell(cellId, work, sheep) {
   let eatenCarbon = 0;
   let returnedNutrient = 0;
 
-  const baobabMass = baobabDisplayMassAt(cellId);
+  const baobabMass = baobabPlantCarbonAt(cellId);
   if (baobabMass > BAOBAB_HIDDEN_THRESHOLD && baobabMass <= SHEEP_MAX_BAOBAB_SPROUT_MASS && remainingWork > 0) {
-    const pressure = Math.min(remainingWork, baobabMass);
+    const forage = sheepBaobabEdibleCarbon(cellId);
+    const pressure = Math.min(remainingWork, forage);
     const removed = grazeBaobabSproutCarbon(cellId, pressure);
     if (removed > 0) {
       const targetId = sheepDungTargetCell(cellId, sheep, 301);
@@ -8562,9 +8593,10 @@ function grazeSheepAtCell(cellId, work, sheep) {
     }
   }
 
-  const roseMass = roseDisplayMassIndex(cellId);
+  const roseMass = rosePlantCarbonAt(cellId);
   if (roseMass > 0.01 && roseMass <= SHEEP_MAX_ROSE_SPROUT_MASS && remainingWork > 0) {
-    const pressure = Math.min(remainingWork, roseMass);
+    const forage = sheepRoseEdibleCarbon(cellId);
+    const pressure = Math.min(remainingWork, forage);
     const removed = grazeRoseSproutCarbon(cellId, pressure);
     if (removed > 0) {
       const targetId = sheepDungTargetCell(cellId, sheep, 503);
@@ -8604,13 +8636,13 @@ function grazeBaobabSproutCarbon(cellId, pressure) {
   if (!modelState || pressure <= 0) {
     return 0;
   }
-  const displayMass = Math.max(1e-6, baobabDisplayMassAt(cellId));
-  const fraction = clamp01(pressure / displayMass);
+  const edibleCarbon = Math.max(1e-6, sheepBaobabEdibleCarbon(cellId));
+  const fraction = clamp01(pressure / edibleCarbon);
   const before = baobabPlantCarbonAt(cellId);
   modelState.baobabLeaf[cellId] = Math.max(0, (modelState.baobabLeaf[cellId] ?? 0) * (1 - fraction));
-  modelState.baobabStem[cellId] = Math.max(0, (modelState.baobabStem[cellId] ?? 0) * (1 - fraction * 0.82));
-  modelState.baobabRoot[cellId] = Math.max(0, (modelState.baobabRoot[cellId] ?? 0) * (1 - fraction * 0.22));
-  modelState.baobabStore[cellId] = Math.max(0, (modelState.baobabStore[cellId] ?? 0) * (1 - fraction * 0.34));
+  modelState.baobabStem[cellId] = Math.max(0, (modelState.baobabStem[cellId] ?? 0) * (1 - fraction * 0.35));
+  modelState.baobabRoot[cellId] = Math.max(0, (modelState.baobabRoot[cellId] ?? 0) * (1 - fraction * 0.08));
+  modelState.baobabStore[cellId] = Math.max(0, (modelState.baobabStore[cellId] ?? 0) * (1 - fraction * 0.08));
   refreshPlantCarbonAggregates(cellId);
   return Math.max(0, before - baobabPlantCarbonAt(cellId));
 }
@@ -8620,13 +8652,13 @@ function grazeRoseSproutCarbon(cellId, pressure) {
   if (!modelState || pressure <= 0) {
     return 0;
   }
-  const displayMass = Math.max(1e-6, roseDisplayMassIndex(cellId));
-  const fraction = clamp01(pressure / displayMass);
+  const edibleCarbon = Math.max(1e-6, sheepRoseEdibleCarbon(cellId));
+  const fraction = clamp01(pressure / edibleCarbon);
   const before = rosePlantCarbonAt(cellId);
   modelState.roseLeaf[cellId] = Math.max(0, (modelState.roseLeaf[cellId] ?? 0) * (1 - fraction));
-  modelState.roseFlower[cellId] = Math.max(0, (modelState.roseFlower[cellId] ?? 0) * (1 - fraction * 0.92));
-  modelState.roseRoot[cellId] = Math.max(0, (modelState.roseRoot[cellId] ?? 0) * (1 - fraction * 0.16));
-  modelState.roseStore[cellId] = Math.max(0, (modelState.roseStore[cellId] ?? 0) * (1 - fraction * 0.28));
+  modelState.roseFlower[cellId] = Math.max(0, (modelState.roseFlower[cellId] ?? 0) * (1 - fraction * 0.55));
+  modelState.roseRoot[cellId] = Math.max(0, (modelState.roseRoot[cellId] ?? 0) * (1 - fraction * 0.08));
+  modelState.roseStore[cellId] = Math.max(0, (modelState.roseStore[cellId] ?? 0) * (1 - fraction * 0.06));
   refreshPlantCarbonAggregates(cellId);
   return Math.max(0, before - rosePlantCarbonAt(cellId));
 }

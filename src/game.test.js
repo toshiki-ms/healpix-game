@@ -966,7 +966,7 @@ const roseGainAllocationFluxSum =
 assert.ok(
   Math.abs(
     roseGainAllocationFluxSum +
-      Math.min(roseGainModel.state.roseSeedProduction[poolCell], roseGainModel.state.nppRose[poolCell]) -
+      Math.min(roseGainModel.state.roseSeedProduction[poolCell], roseGainModel.state.nppRose[poolCell] * 0.38) -
       roseGainModel.state.nppRose[poolCell]
   ) < 1e-7,
   "rose vegetative allocation plus seed output from current NPP should sum to rose NPP"
