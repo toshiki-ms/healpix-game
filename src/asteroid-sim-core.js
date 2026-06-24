@@ -1,4 +1,4 @@
-export const SIM_WASM_VERSION = "20260619-surface-flow-manning1";
+export const SIM_WASM_VERSION = "20260624-terrain-meander4";
 const SIM_WASM_URL = `${import.meta.env?.BASE_URL ?? "./"}assets/sim/asteroid_sim.wasm?v=${SIM_WASM_VERSION}`;
 const SIM_WASM_SHARED_URL = `${import.meta.env?.BASE_URL ?? "./"}assets/sim/asteroid_sim_shared.wasm?v=${SIM_WASM_VERSION}`;
 const SIM_WORKER_URL = new URL("./asteroid-sim-worker.js", import.meta.url);

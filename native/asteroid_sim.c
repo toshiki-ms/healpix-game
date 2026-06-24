@@ -5051,6 +5051,71 @@ static inline float sim_signed_phi_delta(float phi, float center_phi) {
   return delta;
 }
 
+static inline int32_t sim_face_ring_anchor(int32_t face) {
+  return face < 4 ? 2 : face < 8 ? 3 : 4;
+}
+
+static inline int32_t sim_face_phi_anchor(int32_t face) {
+  static const int32_t anchors[12] = { 1, 3, 5, 7, 0, 2, 4, 6, 1, 3, 5, 7 };
+  return anchors[face >= 0 && face < 12 ? face : 0];
+}
+
+static inline float sim_ring_height_for_nside(int32_t ring, int32_t nside) {
+  const float fnside = (float)nside;
+  if (ring < nside) {
+    const float fr = (float)ring;
+    return 1.0f - (fr * fr) / (3.0f * fnside * fnside);
+  }
+  if (ring <= 3 * nside) {
+    return ((float)(2 * nside - ring) * 2.0f) / (3.0f * fnside);
+  }
+  const float mirror = (float)(4 * nside - ring);
+  return -1.0f + (mirror * mirror) / (3.0f * fnside * fnside);
+}
+
+static inline int32_t sim_nearest_polar_anchor_raw(int32_t raw_jp, int32_t nside) {
+  const int32_t period = 8 * nside;
+  int32_t best = nside + 1;
+  int32_t best_distance = 0x7fffffff;
+  for (int32_t anchor_index = 0; anchor_index < 4; anchor_index += 1) {
+    const int32_t anchor = (2 * anchor_index + 1) * nside + 1;
+    const int32_t wrapped_anchor = anchor + (int32_t)sim_floor(((float)(raw_jp - anchor) / (float)period) + 0.5f) * period;
+    const int32_t distance = wrapped_anchor > raw_jp ? wrapped_anchor - raw_jp : raw_jp - wrapped_anchor;
+    if (distance < best_distance) {
+      best = wrapped_anchor;
+      best_distance = distance;
+    }
+  }
+  return best;
+}
+
+static inline float sim_center_phi_raw_from_grid(int32_t raw_jp, int32_t ring, int32_t nside) {
+  if (ring < nside) {
+    const int32_t anchor = sim_nearest_polar_anchor_raw(raw_jp, nside);
+    return (float)anchor + (float)(raw_jp - anchor) * ((float)nside / (float)ring);
+  }
+  if (ring > 3 * nside) {
+    const int32_t anchor = sim_nearest_polar_anchor_raw(raw_jp, nside);
+    return (float)anchor + (float)(raw_jp - anchor) * ((float)nside / (float)(4 * nside - ring));
+  }
+  return (float)raw_jp;
+}
+
+static inline void sim_nested_cell_center_height_phi(
+  int32_t face,
+  int32_t ix,
+  int32_t iy,
+  int32_t nside,
+  float *height,
+  float *phi
+) {
+  const int32_t ring = sim_face_ring_anchor(face) * nside - ix - iy - 1;
+  const int32_t raw_jp = sim_face_phi_anchor(face) * nside - ix + iy + 1;
+  const float phi_raw = sim_center_phi_raw_from_grid(raw_jp, ring, nside);
+  *height = sim_ring_height_for_nside(ring, nside);
+  *phi = sim_modulo_float(((phi_raw - 1.0f) * 3.141592653589793f) / (4.0f * (float)nside), 6.283185307179586f);
+}
+
 static inline float sim_asteroid_fine_field(int32_t id, float height, float phi, int32_t nside, int32_t salt) {
   (void)id;
   (void)nside;
@@ -5147,6 +5212,99 @@ static inline float sim_asteroid_drainage_basin_influence(
   return sim_clamp(0.04f + basin * 0.96f, 0.0f, 1.0f);
 }
 
+static inline void sim_unit_vector_from_height_phi(float height, float phi, float *x, float *y, float *z) {
+  const float r = sim_sqrt(sim_max(0.0f, 1.0f - height * height));
+  *x = sim_cos(phi) * r;
+  *y = height;
+  *z = sim_sin(phi) * r;
+}
+
+static inline float sim_asteroid_drainage_corridor_influence(
+  int32_t id,
+  float height,
+  float phi,
+  int32_t nside,
+  const float *SIM_RESTRICT high_height,
+  const float *SIM_RESTRICT high_phi,
+  int32_t high_count,
+  const float *SIM_RESTRICT outlet_height,
+  const float *SIM_RESTRICT outlet_phi,
+  int32_t outlet_count
+) {
+  if (high_count <= 0 || outlet_count <= 0) {
+    return 0.0f;
+  }
+
+  float px = 0.0f;
+  float py = 0.0f;
+  float pz = 0.0f;
+  sim_unit_vector_from_height_phi(height, phi, &px, &py, &pz);
+
+  float best = 0.0f;
+  for (int32_t high = 0; high < high_count; high += 1) {
+    float ax = 0.0f;
+    float ay = 0.0f;
+    float az = 0.0f;
+    sim_unit_vector_from_height_phi(high_height[high], high_phi[high], &ax, &ay, &az);
+
+    for (int32_t outlet = 0; outlet < outlet_count; outlet += 1) {
+      float bx = 0.0f;
+      float by = 0.0f;
+      float bz = 0.0f;
+      sim_unit_vector_from_height_phi(outlet_height[outlet], outlet_phi[outlet], &bx, &by, &bz);
+
+      const float dot_ab = sim_clamp(ax * bx + ay * by + az * bz, -1.0f, 1.0f);
+      const float length_ab = sim_acos_approx(dot_ab);
+      if (length_ab < 0.12f) {
+        continue;
+      }
+
+      const float dot_ap = sim_clamp(ax * px + ay * py + az * pz, -1.0f, 1.0f);
+      const float dot_bp = sim_clamp(bx * px + by * py + bz * pz, -1.0f, 1.0f);
+      const float length_ap = sim_acos_approx(dot_ap);
+      const float length_bp = sim_acos_approx(dot_bp);
+      const float source_gate = sim_smoothstep(length_ap, 0.006f, 0.055f);
+      const float on_segment =
+        source_gate *
+        sim_smoothstep(length_bp, 0.06f, 0.18f) *
+        (1.0f - sim_smoothstep(length_ap + length_bp - length_ab, 0.10f, 0.34f));
+      if (on_segment <= 0.0f) {
+        continue;
+      }
+
+      const float nx = ay * bz - az * by;
+      const float ny = az * bx - ax * bz;
+      const float nz = ax * by - ay * bx;
+      const float n_norm = sim_sqrt(nx * nx + ny * ny + nz * nz);
+      if (n_norm <= 1.0e-5f) {
+        continue;
+      }
+      const float signed_cross_track_sine = (px * nx + py * ny + pz * nz) / n_norm;
+      const float along = sim_clamp(length_ap / length_ab, 0.0f, 1.0f);
+      const float bend_phase = (float)(high + 1) * 0.73f + (float)(outlet + 1) * 1.31f;
+      const float sweep_wave =
+        sim_sin(along * 4.8f + bend_phase * 0.63f) * 0.090f;
+      const float long_wave =
+        sim_sin(along * 10.6f + bend_phase) * 0.140f;
+      const float mid_wave =
+        sim_sin(along * 20.4f + bend_phase * 1.37f) * 0.055f;
+      const float short_wave =
+        sim_sin(along * 38.0f + bend_phase * 1.7f) * 0.014f;
+      const float bank_noise =
+        (sim_asteroid_coherent_field(id, height, phi, nside, 1187) - 0.5f) * 0.004f;
+      const float meander_center = (sweep_wave + long_wave + mid_wave + short_wave) * source_gate + bank_noise;
+      const float width =
+        0.024f +
+        0.010f * sim_asteroid_coherent_field(id, height, phi, nside, 1181);
+      const float lateral = sim_abs(signed_cross_track_sine - meander_center);
+      const float corridor = sim_exp(-0.5f * (lateral / width) * (lateral / width)) * on_segment;
+      best = sim_max(best, corridor);
+    }
+  }
+
+  return sim_clamp(best, 0.0f, 1.0f);
+}
+
 static inline float sim_asteroid_elevation_m(
   int32_t id,
   float height,
@@ -5155,7 +5313,8 @@ static inline float sim_asteroid_elevation_m(
   float volcano_influence,
   float active_volcano_influence,
   float water_influence,
-  float water_drainage_influence
+  float water_drainage_influence,
+  float drainage_corridor_influence
 ) {
   const float broad = (sim_asteroid_coherent_field(id, height, phi, nside, 887) - 0.5f) * 2.0f;
   const float fine = (sim_asteroid_fine_field(id, height, phi, nside, 891) - 0.5f) * 2.0f;
@@ -5170,7 +5329,13 @@ static inline float sim_asteroid_elevation_m(
   const float volcano_foothill = sim_pow_positive(volcano_influence, 0.98f) * 1180.0f;
   const float volcano_peak = sim_pow_positive(volcano_influence, 2.05f) * 4200.0f + sim_pow_positive(active_volcano_influence, 2.35f) * 1200.0f;
   const float basin_sink = sim_pow_positive(water_drainage_influence, 1.05f) * 1280.0f + sim_pow_positive(water_influence, 1.55f) * 720.0f;
-  return broad_relief + fine_relief + ridge_relief + micro_relief + polar_rise + volcano_foothill + volcano_peak - basin_sink;
+  const float valley_cut = sim_pow_positive(drainage_corridor_influence, 0.74f) * 1320.0f;
+  const float mountain_channel_cut =
+    sim_pow_positive(drainage_corridor_influence, 0.9f) *
+    sim_pow_positive(volcano_influence, 0.72f) *
+    1650.0f;
+  const float valley_bank = sim_pow_positive(drainage_corridor_influence, 1.85f) * 110.0f;
+  return broad_relief + fine_relief + ridge_relief + micro_relief + polar_rise + volcano_foothill + volcano_peak - basin_sink - valley_cut - mountain_channel_cut + valley_bank;
 }
 
 static inline int32_t sim_asteroid_sunset_path_half_width(int32_t nside) {
@@ -5214,6 +5379,190 @@ static inline float sim_asteroid_sunset_path_center_ring(
   return sim_clamp(center, 1.0f, (float)(4 * nside));
 }
 
+typedef struct SimAsteroidTerrainSample {
+  float moisture;
+  float soil;
+  float baobab_risk;
+  float ash;
+  float elevation;
+  float volcanic_ash_fall_rate;
+  float care;
+  float volcano_influence;
+  float active_volcano_influence;
+  float water_influence;
+  float drainage_corridor_influence;
+  uint8_t terrain_code;
+  uint8_t baobab_blocked;
+  uint8_t active_volcano_crater;
+} SimAsteroidTerrainSample;
+
+static inline SimAsteroidTerrainSample sim_asteroid_profile_sample(
+  int32_t id,
+  float height,
+  float phi,
+  int32_t ring,
+  int32_t nside,
+  int32_t exact_volcano_cell,
+  int32_t exact_active_volcano_cell,
+  const float *SIM_RESTRICT volcano_height,
+  const float *SIM_RESTRICT volcano_phi,
+  const int32_t *SIM_RESTRICT volcano_ring,
+  int32_t volcano_count,
+  const float *SIM_RESTRICT active_volcano_height,
+  const float *SIM_RESTRICT active_volcano_phi,
+  int32_t active_volcano_count,
+  const float *SIM_RESTRICT active_center_height,
+  const float *SIM_RESTRICT active_center_phi,
+  int32_t active_center_count,
+  const float *SIM_RESTRICT water_height,
+  const float *SIM_RESTRICT water_phi,
+  int32_t water_count,
+  const float *SIM_RESTRICT baobab_watch_height,
+  const float *SIM_RESTRICT baobab_watch_phi,
+  int32_t baobab_watch_count,
+  int32_t rose_ring,
+  float rose_phi
+) {
+  SimAsteroidTerrainSample sample;
+  sample.moisture = 0.0f;
+  sample.soil = 0.0f;
+  sample.baobab_risk = 0.0f;
+  sample.ash = 0.0f;
+  sample.elevation = 0.0f;
+  sample.volcanic_ash_fall_rate = 0.0f;
+  sample.care = 0.0f;
+  sample.volcano_influence = sim_asteroid_local_patch_influence(id, height, phi, nside, volcano_height, volcano_phi, volcano_count, 301, 1.0f);
+  sample.active_volcano_influence = sim_asteroid_local_patch_influence(id, height, phi, nside, active_volcano_height, active_volcano_phi, active_volcano_count, 307, 0.9f);
+  sample.water_influence = sim_asteroid_patch_influence(id, height, phi, nside, water_height, water_phi, water_count, 313, 0.82f);
+  const float water_drainage_influence = sim_asteroid_drainage_basin_influence(height, phi, water_height, water_phi, water_count, 1.38f);
+  sample.drainage_corridor_influence = sim_asteroid_drainage_corridor_influence(
+    id,
+    height,
+    phi,
+    nside,
+    volcano_height,
+    volcano_phi,
+    volcano_count,
+    water_height,
+    water_phi,
+    water_count
+  );
+  sample.terrain_code = SIM_TERRAIN_SAND;
+  sample.baobab_blocked = 0u;
+  sample.active_volcano_crater = 0u;
+
+  const int32_t is_volcano_area = sample.volcano_influence > 0.54f;
+  const int32_t is_active_volcano_area = sample.active_volcano_influence > 0.55f;
+  const float crater_radius = sim_min(0.055f, 1.35f * sim_sqrt(3.141592653589793f / 3.0f) / (float)nside);
+  const float crater_dot_threshold = sim_cos(crater_radius);
+  float crater_dot = -1.0f;
+  for (int32_t source = 0; source < active_center_count; source += 1) {
+    crater_dot = sim_max(crater_dot, sim_normal_dot_height_phi(height, phi, active_center_height[source], active_center_phi[source]));
+  }
+  if (crater_dot >= crater_dot_threshold) {
+    sample.active_volcano_crater = 1u;
+  }
+
+  const int32_t path_half_width = sim_asteroid_sunset_path_half_width(nside);
+  const float path_center = sim_asteroid_sunset_path_center_ring(nside, height, phi, volcano_ring, volcano_phi, volcano_count, rose_ring, rose_phi);
+  const int32_t blocked_path = exact_volcano_cell || sample.volcano_influence > 0.18f;
+  const int32_t is_sunset_path_ground = !blocked_path && sim_abs((float)ring - path_center) <= (float)path_half_width;
+  const int32_t is_water_area = sample.water_influence > 0.54f && !is_volcano_area && !is_sunset_path_ground;
+  const int32_t is_baobab_watch_ground =
+    sim_asteroid_patch_influence(id, height, phi, nside, baobab_watch_height, baobab_watch_phi, baobab_watch_count, 317, 0.86f) > 0.5f &&
+    !is_volcano_area &&
+    !is_water_area;
+
+  sample.volcanic_ash_fall_rate =
+    exact_active_volcano_cell ? 0.006f / 8.0f :
+      sample.active_volcano_influence > 0.5f ? (0.0024f * sample.active_volcano_influence) / 8.0f :
+        sample.active_volcano_influence > 0.16f ? (0.0008f * sample.active_volcano_influence) / 8.0f :
+          0.0f;
+  sample.elevation = sim_asteroid_elevation_m(
+    id,
+    height,
+    phi,
+    nside,
+    sample.volcano_influence,
+    sample.active_volcano_influence,
+    sample.water_influence,
+    water_drainage_influence,
+    sample.drainage_corridor_influence
+  );
+
+  const float bare_field = sim_asteroid_coherent_field(id, height, phi, nside, 467);
+  const float moss_field = sim_asteroid_coherent_field(id, height, phi, nside, 503);
+  const float equatorial_warmth = sim_exp(-0.5f * (height / 0.58f) * (height / 0.58f));
+  const float rockiness = sim_clamp(0.5f + sim_asteroid_fine_field(id, height, phi, nside, 521) * 0.46f - equatorial_warmth * 0.28f + sim_seeded_noise_nside(id, 27, nside) * 0.06f, 0.0f, 1.0f);
+  const float base_moisture = 0.25f + equatorial_warmth * 0.12f + sim_asteroid_coherent_field(id, height, phi, nside, 509) * 0.08f;
+  sample.terrain_code = rockiness > 0.62f ? SIM_TERRAIN_ROCK : SIM_TERRAIN_SAND;
+  sample.moisture = sim_clamp(
+    base_moisture +
+      bare_field * 0.13f +
+      sample.drainage_corridor_influence * 0.095f +
+      sim_seeded_noise_nside(id, 3, nside) * 0.045f,
+    0.0f,
+    1.0f
+  );
+  sample.soil = sim_clamp(
+    0.44f +
+      bare_field * 0.23f +
+      equatorial_warmth * 0.08f +
+      sample.drainage_corridor_influence * 0.07f +
+      sim_seeded_noise_nside(id, 31, nside) * 0.045f -
+      rockiness * 0.08f,
+    0.0f,
+    1.0f
+  );
+
+  if (is_baobab_watch_ground) {
+    sample.terrain_code = SIM_TERRAIN_CRACK;
+    sample.baobab_risk = 0.75f + sim_seeded_noise_nside(id, 17, nside) * 0.2f;
+    sample.moisture = sim_clamp(sample.moisture - 0.1f, 0.0f, 1.0f);
+    sample.soil = sim_clamp(sample.soil - 0.12f, 0.0f, 1.0f);
+  } else if (equatorial_warmth > 0.34f && (moss_field > 0.79f || (sample.drainage_corridor_influence > 0.5f && sample.moisture > 0.39f))) {
+    sample.terrain_code = SIM_TERRAIN_MOSS;
+  }
+
+  if (is_sunset_path_ground) {
+    sample.terrain_code = SIM_TERRAIN_PATH;
+    sample.care = 0.04f;
+    sample.baobab_risk *= 0.45f;
+  }
+
+  if (sample.volcano_influence > 0.18f) {
+    sample.soil = sim_clamp(sample.soil - sample.volcano_influence * 0.22f, 0.0f, 1.0f);
+    sample.moisture = sim_clamp(sample.moisture - sample.volcano_influence * 0.04f, 0.0f, 1.0f);
+    if (sample.active_volcano_influence > 0.16f) {
+      sample.ash = sim_max(sample.ash, 0.012f + sample.active_volcano_influence * 0.07f + sim_seeded_noise_nside(id, 37, nside) * 0.018f);
+    }
+  }
+
+  if (is_volcano_area) {
+    sample.terrain_code = SIM_TERRAIN_VOLCANO;
+    sample.ash =
+      (is_active_volcano_area ? 0.12f : 0.08f) +
+      sample.volcano_influence * (is_active_volcano_area ? 0.08f : 0.035f) +
+      sim_seeded_noise_nside(id, 29, nside) * (is_active_volcano_area ? 0.04f : 0.025f);
+    sample.moisture = sim_clamp(sample.moisture - 0.14f, 0.0f, 1.0f);
+    sample.soil = 0.06f + (1.0f - sample.volcano_influence) * 0.08f + sim_seeded_noise_nside(id, 43, nside) * 0.05f;
+    if (is_active_volcano_area) {
+      sample.baobab_risk = 0.0f;
+      sample.baobab_blocked = 1u;
+    }
+  }
+
+  if (is_water_area) {
+    sample.terrain_code = SIM_TERRAIN_WATER;
+    sample.moisture = 0.76f + sample.water_influence * 0.18f + sim_seeded_noise_nside(id, 73, nside) * 0.08f;
+    sample.soil = sim_max(sample.soil, 0.58f);
+    sample.baobab_risk *= 0.18f;
+    sample.ash = sim_max(0.0f, sample.ash - 0.04f);
+  }
+
+  return sample;
+}
+
 SIM_EXPORT void sim_initialize_asteroid_profile(
   int32_t size,
   int32_t nside,
@@ -5226,7 +5575,6 @@ SIM_EXPORT void sim_initialize_asteroid_profile(
   uintptr_t offsets_offset
 ) {
   const uint32_t *SIM_RESTRICT offsets = (const uint32_t *)(uintptr_t)offsets_offset;
-  const float *SIM_RESTRICT cell_height = (const float *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_CELL_HEIGHT];
   const float *SIM_RESTRICT cell_phi = (const float *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_CELL_PHI];
   const int32_t *SIM_RESTRICT cell_ring = (const int32_t *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_CELL_RING];
   const float *SIM_RESTRICT volcano_height = (const float *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_VOLCANO_HEIGHT];
@@ -5253,95 +5601,135 @@ SIM_EXPORT void sim_initialize_asteroid_profile(
   uint8_t *SIM_RESTRICT active_volcano_crater_mask = (uint8_t *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_ACTIVE_VOLCANO_CRATER_MASK];
   float *SIM_RESTRICT care = (float *)(uintptr_t)offsets[SIM_ASTEROID_PROFILE_CARE];
 
-  const float crater_radius = sim_min(0.11f, 2.6f * sim_sqrt(3.141592653589793f / 3.0f) / (float)nside);
-  const float crater_dot_threshold = sim_cos(crater_radius);
-  const int32_t path_half_width = sim_asteroid_sunset_path_half_width(nside);
-  const int32_t rose_ring = (rose_cell >= 0 && rose_cell < size) ? cell_ring[rose_cell] : 2 * nside;
+  const int32_t canonical_nside = nside < 64 ? 64 : nside;
+  const int32_t child_scale = canonical_nside / nside > 0 ? canonical_nside / nside : 1;
+  const int32_t rose_ring = (rose_cell >= 0 && rose_cell < size) ? (int32_t)sim_floor(((float)cell_ring[rose_cell] * (float)canonical_nside / (float)nside) + 0.5f) : 2 * canonical_nside;
   const float rose_phi = (rose_cell >= 0 && rose_cell < size) ? cell_phi[rose_cell] : 0.0f;
 
   SIM_VECTORIZE_LOOP
   for (int32_t i = 0; i < size; i += 1) {
-    const float height = cell_height[i];
-    const float phi = cell_phi[i];
-    const float volcano_influence = sim_asteroid_local_patch_influence(i, height, phi, nside, volcano_height, volcano_phi, volcano_count, 301, 1.0f);
-    const float active_volcano_influence = sim_asteroid_local_patch_influence(i, height, phi, nside, active_volcano_height, active_volcano_phi, active_volcano_count, 307, 0.9f);
-    const float water_influence = sim_asteroid_patch_influence(i, height, phi, nside, water_height, water_phi, water_count, 313, 0.82f);
-    const float water_drainage_influence = sim_asteroid_drainage_basin_influence(height, phi, water_height, water_phi, water_count, 1.38f);
-    const float baobab_watch_influence = sim_asteroid_patch_influence(i, height, phi, nside, baobab_watch_height, baobab_watch_phi, baobab_watch_count, 317, 0.86f);
-    const int32_t is_volcano_area = volcano_influence > 0.54f;
-    const int32_t is_active_volcano_area = active_volcano_influence > 0.55f;
-    float crater_dot = -1.0f;
-    for (int32_t source = 0; source < active_center_count; source += 1) {
-      crater_dot = sim_max(crater_dot, sim_normal_dot_height_phi(height, phi, active_center_height[source], active_center_phi[source]));
-    }
-    if (crater_dot >= crater_dot_threshold) {
-      active_volcano_crater_mask[i] = 1u;
-    }
+    int32_t face = 0;
+    int32_t ix = 0;
+    int32_t iy = 0;
+    sim_decode_nested_id(i, nside, &face, &ix, &iy);
 
-    const float path_center = sim_asteroid_sunset_path_center_ring(nside, height, phi, volcano_ring, volcano_phi, volcano_count, rose_ring, rose_phi);
-    const int32_t blocked_path = volcano_mask[i] == 1u || volcano_influence > 0.18f;
-    const int32_t is_sunset_path_ground = !blocked_path && sim_abs((float)cell_ring[i] - path_center) <= (float)path_half_width;
-    const int32_t is_water_area = water_influence > 0.54f && !is_volcano_area && !is_sunset_path_ground;
-    const int32_t is_baobab_watch_ground = baobab_watch_influence > 0.5f && !is_volcano_area && !is_water_area;
+    float moisture_sum = 0.0f;
+    float soil_sum = 0.0f;
+    float baobab_risk_sum = 0.0f;
+    float ash_sum = 0.0f;
+    float elevation_sum = 0.0f;
+    float ash_fall_sum = 0.0f;
+    float care_sum = 0.0f;
+    float volcano_influence_sum = 0.0f;
+    float active_volcano_influence_sum = 0.0f;
+    float water_influence_sum = 0.0f;
+    float corridor_sum = 0.0f;
+    int32_t terrain_counts[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+    int32_t blocked_count = 0;
+    int32_t crater_count = 0;
+    const int32_t sample_count = child_scale * child_scale;
 
-    volcanic_ash_fall_rate[i] =
-      active_volcano_mask[i] == 1u ? 0.006f / 8.0f :
-        active_volcano_influence > 0.5f ? (0.0024f * active_volcano_influence) / 8.0f :
-          active_volcano_influence > 0.16f ? (0.0008f * active_volcano_influence) / 8.0f :
-            0.0f;
-    elevation[i] = sim_asteroid_elevation_m(i, height, phi, nside, volcano_influence, active_volcano_influence, water_influence, water_drainage_influence);
-
-    const float bare_field = sim_asteroid_coherent_field(i, height, phi, nside, 467);
-    const float moss_field = sim_asteroid_coherent_field(i, height, phi, nside, 503);
-    const float equatorial_warmth = sim_exp(-0.5f * (height / 0.58f) * (height / 0.58f));
-    const float rockiness = sim_clamp(0.5f + sim_asteroid_fine_field(i, height, phi, nside, 521) * 0.46f - equatorial_warmth * 0.28f + sim_seeded_noise_nside(i, 27, nside) * 0.06f, 0.0f, 1.0f);
-    const float base_moisture = 0.25f + equatorial_warmth * 0.12f + sim_asteroid_coherent_field(i, height, phi, nside, 509) * 0.08f;
-    terrain_code[i] = rockiness > 0.62f ? SIM_TERRAIN_ROCK : SIM_TERRAIN_SAND;
-    moisture[i] = sim_clamp(base_moisture + bare_field * 0.13f + sim_seeded_noise_nside(i, 3, nside) * 0.045f, 0.0f, 1.0f);
-    soil[i] = sim_clamp(0.44f + bare_field * 0.23f + equatorial_warmth * 0.08f + sim_seeded_noise_nside(i, 31, nside) * 0.045f - rockiness * 0.08f, 0.0f, 1.0f);
-    baobab_risk[i] = 0.0f;
-    baobab_blocked[i] = 0u;
-    care[i] = 0.0f;
-
-    if (is_baobab_watch_ground) {
-      terrain_code[i] = SIM_TERRAIN_CRACK;
-      baobab_risk[i] = 0.75f + sim_seeded_noise_nside(i, 17, nside) * 0.2f;
-      moisture[i] = sim_clamp(moisture[i] - 0.1f, 0.0f, 1.0f);
-      soil[i] = sim_clamp(soil[i] - 0.12f, 0.0f, 1.0f);
-    } else if (equatorial_warmth > 0.38f && moss_field > 0.79f) {
-      terrain_code[i] = SIM_TERRAIN_MOSS;
-    }
-
-    if (is_sunset_path_ground && volcano_mask[i] == 0u) {
-      terrain_code[i] = SIM_TERRAIN_PATH;
-      care[i] = 0.04f;
-      baobab_risk[i] *= 0.45f;
-    }
-
-    if (volcano_influence > 0.18f) {
-      soil[i] = sim_clamp(soil[i] - volcano_influence * 0.22f, 0.0f, 1.0f);
-      moisture[i] = sim_clamp(moisture[i] - volcano_influence * 0.04f, 0.0f, 1.0f);
-      if (active_volcano_influence > 0.16f) {
-        ash[i] = sim_max(ash[i], 0.012f + active_volcano_influence * 0.07f + sim_seeded_noise_nside(i, 37, nside) * 0.018f);
+    for (int32_t dx = 0; dx < child_scale; dx += 1) {
+      for (int32_t dy = 0; dy < child_scale; dy += 1) {
+        const int32_t sample_ix = ix * child_scale + dx;
+        const int32_t sample_iy = iy * child_scale + dy;
+        const int32_t sample_id = sim_nested_id(face, sample_ix, sample_iy, canonical_nside);
+        const int32_t sample_ring = sim_face_ring_anchor(face) * canonical_nside - sample_ix - sample_iy - 1;
+        float sample_height = 0.0f;
+        float sample_phi = 0.0f;
+        sim_nested_cell_center_height_phi(face, sample_ix, sample_iy, canonical_nside, &sample_height, &sample_phi);
+        const SimAsteroidTerrainSample sample = sim_asteroid_profile_sample(
+          sample_id,
+          sample_height,
+          sample_phi,
+          sample_ring,
+          canonical_nside,
+          child_scale == 1 && volcano_mask[i] == 1u,
+          child_scale == 1 && active_volcano_mask[i] == 1u,
+          volcano_height,
+          volcano_phi,
+          volcano_ring,
+          volcano_count,
+          active_volcano_height,
+          active_volcano_phi,
+          active_volcano_count,
+          active_center_height,
+          active_center_phi,
+          active_center_count,
+          water_height,
+          water_phi,
+          water_count,
+          baobab_watch_height,
+          baobab_watch_phi,
+          baobab_watch_count,
+          rose_ring,
+          rose_phi
+        );
+        moisture_sum += sample.moisture;
+        soil_sum += sample.soil;
+        baobab_risk_sum += sample.baobab_risk;
+        ash_sum += sample.ash;
+        elevation_sum += sample.elevation;
+        ash_fall_sum += sample.volcanic_ash_fall_rate;
+        care_sum += sample.care;
+        volcano_influence_sum += sample.volcano_influence;
+        active_volcano_influence_sum += sample.active_volcano_influence;
+        water_influence_sum += sample.water_influence;
+        corridor_sum += sample.drainage_corridor_influence;
+        if (sample.terrain_code <= SIM_TERRAIN_MEADOW) {
+          terrain_counts[sample.terrain_code] += 1;
+        }
+        blocked_count += sample.baobab_blocked ? 1 : 0;
+        crater_count += sample.active_volcano_crater ? 1 : 0;
       }
     }
 
-    if (is_volcano_area) {
-      ash[i] = (is_active_volcano_area ? 0.12f : 0.08f) + volcano_influence * (is_active_volcano_area ? 0.08f : 0.035f) + sim_seeded_noise_nside(i, 29, nside) * (is_active_volcano_area ? 0.04f : 0.025f);
-      moisture[i] = sim_clamp(moisture[i] - 0.14f, 0.0f, 1.0f);
-      soil[i] = 0.06f + (1.0f - volcano_influence) * 0.08f + sim_seeded_noise_nside(i, 43, nside) * 0.05f;
-      if (is_active_volcano_area) {
+    const float inv_sample_count = 1.0f / (float)sample_count;
+    const float volcano_fraction = (float)terrain_counts[SIM_TERRAIN_VOLCANO] * inv_sample_count;
+    const float water_fraction = (float)terrain_counts[SIM_TERRAIN_WATER] * inv_sample_count;
+    const float path_fraction = (float)terrain_counts[SIM_TERRAIN_PATH] * inv_sample_count;
+    const float crack_fraction = (float)terrain_counts[SIM_TERRAIN_CRACK] * inv_sample_count;
+    const float moss_fraction = (float)terrain_counts[SIM_TERRAIN_MOSS] * inv_sample_count;
+    const float rock_fraction = (float)terrain_counts[SIM_TERRAIN_ROCK] * inv_sample_count;
+    const float sand_fraction = (float)terrain_counts[SIM_TERRAIN_SAND] * inv_sample_count;
+    const float mean_volcano_influence = volcano_influence_sum * inv_sample_count;
+    const float mean_active_volcano_influence = active_volcano_influence_sum * inv_sample_count;
+    const float mean_water_influence = water_influence_sum * inv_sample_count;
+    const float mean_corridor = corridor_sum * inv_sample_count;
+
+    moisture[i] = sim_clamp(moisture_sum * inv_sample_count, 0.0f, 1.0f);
+    soil[i] = sim_clamp(soil_sum * inv_sample_count, 0.0f, 1.0f);
+    baobab_risk[i] = sim_clamp(baobab_risk_sum * inv_sample_count, 0.0f, 1.0f);
+    ash[i] = sim_clamp(ash_sum * inv_sample_count, 0.0f, 1.0f);
+    elevation[i] = elevation_sum * inv_sample_count;
+    volcanic_ash_fall_rate[i] = ash_fall_sum * inv_sample_count;
+    care[i] = care_sum * inv_sample_count;
+    baobab_blocked[i] = blocked_count > 0 ? 1u : 0u;
+    active_volcano_crater_mask[i] = crater_count > 0 ? 1u : 0u;
+
+    terrain_code[i] =
+      volcano_mask[i] == 1u || volcano_fraction > 0.16f || mean_volcano_influence > 0.54f ? SIM_TERRAIN_VOLCANO :
+        water_fraction > 0.16f || (mean_water_influence > 0.58f && volcano_fraction < 0.08f) ? SIM_TERRAIN_WATER :
+          path_fraction > 0.18f ? SIM_TERRAIN_PATH :
+            crack_fraction > 0.24f ? SIM_TERRAIN_CRACK :
+              moss_fraction > 0.2f || (mean_corridor > 0.5f && moisture[i] > 0.41f) ? SIM_TERRAIN_MOSS :
+                rock_fraction > sim_max(0.28f, sand_fraction) ? SIM_TERRAIN_ROCK :
+                  SIM_TERRAIN_SAND;
+
+    if (terrain_code[i] == SIM_TERRAIN_VOLCANO) {
+      soil[i] = sim_min(soil[i], 0.15f + (1.0f - mean_volcano_influence) * 0.08f);
+      moisture[i] = sim_min(moisture[i], 0.24f);
+      if (mean_active_volcano_influence > 0.48f || active_volcano_mask[i] == 1u) {
         baobab_risk[i] = 0.0f;
         baobab_blocked[i] = 1u;
       }
-    }
-
-    if (is_water_area) {
-      terrain_code[i] = SIM_TERRAIN_WATER;
-      moisture[i] = 0.76f + water_influence * 0.18f + sim_seeded_noise_nside(i, 73, nside) * 0.08f;
+    } else if (terrain_code[i] == SIM_TERRAIN_WATER) {
+      moisture[i] = sim_max(moisture[i], 0.78f);
       soil[i] = sim_max(soil[i], 0.58f);
       baobab_risk[i] *= 0.18f;
-      ash[i] = sim_max(0.0f, ash[i] - 0.04f);
+    } else if (terrain_code[i] == SIM_TERRAIN_PATH) {
+      care[i] = sim_max(care[i], 0.04f);
+      baobab_risk[i] *= 0.45f;
     }
   }
 }

@@ -2299,35 +2299,14 @@ function signedPhiDelta(a, b) {
 }
 
 function selectWaterParentKey(blockedKeys) {
-  const pathHalfWidth = sunsetPathHalfWidth();
   const candidates = [];
-  const pathGaps = new Map();
 
   for (const parentCell of hierarchyObjectTopology.cells) {
     const key = hierarchyCellKey(parentCell);
     if (blockedKeys.has(key)) {
       continue;
     }
-    pathGaps.set(key, Infinity);
-  }
-
-  for (const cell of topology.cells) {
-    const key = hierarchyCellKey(hierarchyParentCell(cell));
-    if (!pathGaps.has(key)) {
-      continue;
-    }
-    const pathGap = Math.abs(cell.ring - sunsetPathCenterRing(cell)) - pathHalfWidth;
-    if (pathGap < pathGaps.get(key)) {
-      pathGaps.set(key, pathGap);
-    }
-  }
-
-  for (const parentCell of hierarchyObjectTopology.cells) {
-    const key = hierarchyCellKey(parentCell);
-    const pathGap = pathGaps.get(key);
-    if (pathGap === undefined) {
-      continue;
-    }
+    const pathGap = Math.abs(parentCell.ring - (2 * HIERARCHY_OBJECT_NSIDE));
     if (pathGap <= 0) {
       continue;
     }
@@ -6310,9 +6289,9 @@ function colorForCellInto(cell, target) {
   if (isActiveVolcanoCenter) {
     target.copy(activeVolcanoDarkRockColor).lerp(activeVolcanoGlowColor, 0.72);
   } else if (isActiveVolcanoCrater) {
-    target.copy(activeVolcanoDarkRockColor).lerp(activeVolcanoGlowColor, 0.44);
+    target.copy(activeVolcanoDarkRockColor).lerp(activeVolcanoGlowColor, 0.38);
   } else if (isActiveVolcano) {
-    target.copy(activeVolcanoDarkRockColor).lerp(activeVolcanoGlowColor, 0.3);
+    target.copy(activeVolcanoDarkRockColor).lerp(activeVolcanoGlowColor, 0.22);
   } else if (isDormantVolcano) {
     target.lerp(dormantVolcanoDarkRockColor, 0.24);
   }
@@ -7414,7 +7393,7 @@ function applyManagementForStep(management, dtDays) {
 function retainedIrrigationAmountForStep(cellId, requestedAmountM) {
   const modelState = vegetationModelState();
   const requested = Math.max(0, requestedAmountM);
-  if (!modelState || requested <= 0 || state.terrain[cellId] === "water" || state.terrain[cellId] === "volcano") {
+  if (!modelState || requested <= 0 || state.terrain[cellId] === "water" || isIceFreeCraterCell(cellId)) {
     return 0;
   }
   const size = modelState.MR?.length ?? state.npix ?? 0;
@@ -7448,7 +7427,7 @@ function retainedIrrigationAmountForStep(cellId, requestedAmountM) {
 
 function openSurfaceWaterAmountForStep(cellId, requestedAmountM) {
   const requested = Math.max(0, requestedAmountM);
-  if (requested <= 0 || state.terrain[cellId] === "water" || state.terrain[cellId] === "volcano") {
+  if (requested <= 0 || state.terrain[cellId] === "water" || isIceFreeCraterCell(cellId)) {
     return 0;
   }
   return requested;
@@ -10546,7 +10525,7 @@ function landKeyForCell(cellId, targetState = state) {
   }
 
   if (terrain === "volcano") {
-    return isActiveVolcanoCell(cellId, targetState) ? "activeVolcanoLand" : "dormantVolcanoLand";
+    return isActiveVolcanoCoreCell(cellId, targetState) ? "activeVolcanoLand" : "dormantVolcanoLand";
   }
 
   if (terrain === "water") {
@@ -10853,7 +10832,7 @@ function describeCell(cellId) {
 
 function terrainLabelForCell(cellId, text = labels()) {
   if (state.terrain[cellId] === "volcano") {
-    return text.terrain[isActiveVolcanoCell(cellId) ? "activeVolcano" : "dormantVolcano"];
+    return text.terrain[isActiveVolcanoCoreCell(cellId) ? "activeVolcano" : "dormantVolcano"];
   }
 
   if (state.terrain[cellId] === "rose" && !hasVisibleRose(cellId)) {
@@ -10861,6 +10840,10 @@ function terrainLabelForCell(cellId, text = labels()) {
   }
 
   return text.terrain[state.terrain[cellId]];
+}
+
+function isActiveVolcanoCoreCell(cellId, targetState = state) {
+  return targetState.activeVolcanoMask?.[cellId] === 1 || targetState.activeVolcanoCraterMask?.[cellId] === 1;
 }
 
 function isActiveVolcanoCell(cellId, targetState = state) {
